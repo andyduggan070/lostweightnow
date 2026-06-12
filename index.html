@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <title>LostWeightNow</title>
+  <meta name="description" content="Meal, water, fasting and weight tracker with honest coaching">
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LostWeightNow">
+  <meta name="theme-color" content="#0d9488">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>LostWeightNow</h1>
+    <div id="fastingPill" class="fasting-pill"></div>
+  </header>
+
+  <main id="main">
+
+    <!-- ============ TODAY ============ -->
+    <section id="tab-today" class="tab active">
+
+      <div class="card" id="fastingCard">
+        <h2>Intermittent Fasting</h2>
+        <div id="fastingStatus" class="fasting-status"></div>
+        <div class="progress-track"><div id="fastingProgress" class="progress-fill"></div></div>
+        <div id="fastingDetail" class="muted small"></div>
+      </div>
+
+      <div class="card" id="waterCard">
+        <div class="card-head">
+          <h2>Water</h2>
+          <span id="waterSummary" class="muted small"></span>
+        </div>
+        <div class="water-tally">
+          <div class="water-remaining"><span id="waterRemaining">0</span><span class="unit" id="waterUnitLabel">ml</span></div>
+          <div class="muted small">remaining today</div>
+        </div>
+        <div class="progress-track water"><div id="waterProgress" class="progress-fill"></div></div>
+        <div class="water-buttons">
+          <button class="btn water-add" data-ml="250">+ Glass<br><span class="small" data-water-label="250"></span></button>
+          <button class="btn water-add" data-ml="500">+ Bottle<br><span class="small" data-water-label="500"></span></button>
+          <button class="btn water-add" data-ml="750">+ Large<br><span class="small" data-water-label="750"></span></button>
+          <button class="btn ghost" id="waterUndo">Undo</button>
+        </div>
+        <div id="waterDone" class="success-note hidden">🎉 Water goal reached — well done!</div>
+      </div>
+
+      <div class="card">
+        <h2>Log a Meal</h2>
+        <form id="mealForm">
+          <label>What did you eat?
+            <textarea id="mealDesc" rows="2" required placeholder="e.g. grilled chicken salad, slice of sourdough, black coffee"></textarea>
+          </label>
+          <div class="form-row">
+            <label>When
+              <input type="datetime-local" id="mealTime" required>
+            </label>
+            <label>Portion
+              <select id="mealPortion">
+                <option value="small">Small</option>
+                <option value="medium" selected>Medium</option>
+                <option value="large">Large</option>
+                <option value="extra-large">Extra large</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" class="btn primary full">Log Meal</button>
+        </form>
+        <div id="coachFeedback" class="coach-box hidden"></div>
+      </div>
+
+      <div class="card">
+        <h2>Today's Meals</h2>
+        <ul id="todayMeals" class="meal-list"></ul>
+        <p id="noMeals" class="muted">Nothing logged yet today.</p>
+      </div>
+    </section>
+
+    <!-- ============ HISTORY ============ -->
+    <section id="tab-history" class="tab">
+      <div class="card">
+        <h2>Daily Coach Review</h2>
+        <div id="dailyReview" class="coach-box"></div>
+      </div>
+      <div class="card">
+        <h2>Meal History</h2>
+        <div id="historyList"></div>
+      </div>
+    </section>
+
+    <!-- ============ WEIGHT ============ -->
+    <section id="tab-weight" class="tab">
+      <div class="card">
+        <div class="card-head">
+          <h2>Weigh-in</h2>
+          <span id="lastWeighIn" class="muted small"></span>
+        </div>
+        <div id="weighReminder" class="warn-note hidden"></div>
+        <form id="weightForm" class="form-row">
+          <label>Weight (<span class="weight-unit-label">kg</span>)
+            <input type="number" id="weightInput" step="0.1" min="20" max="500" required>
+          </label>
+          <label>Date
+            <input type="date" id="weightDate" required>
+          </label>
+          <button type="submit" class="btn primary">Save</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Progress</h2>
+        <div id="goalStatus" class="goal-status"></div>
+        <div id="weightChart" class="chart-wrap"></div>
+        <div class="chart-legend">
+          <span><i class="dot actual"></i>Your weight</span>
+          <span><i class="dot target"></i>Goal trajectory</span>
+        </div>
+        <ul id="weightList" class="weight-list"></ul>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section id="tab-settings" class="tab">
+      <div class="card">
+        <h2>About You</h2>
+        <form id="profileForm">
+          <div class="form-row">
+            <label>Age
+              <input type="number" id="profAge" min="13" max="120" placeholder="years">
+            </label>
+            <label>Sex
+              <select id="profSex">
+                <option value="">—</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Height (<span id="heightUnitLabel">cm</span>)
+              <input type="number" id="profHeight" step="0.1" min="80" max="250" placeholder="cm">
+            </label>
+            <label>Starting weight (<span class="weight-unit-label">kg</span>)
+              <input type="number" id="profStartWeight" step="0.1" min="20" max="500">
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Weight unit
+              <select id="profWeightUnit">
+                <option value="kg">kg</option>
+                <option value="lb">lb</option>
+              </select>
+            </label>
+            <label>Water unit
+              <select id="profWaterUnit">
+                <option value="ml">ml</option>
+                <option value="floz">fl oz</option>
+              </select>
+            </label>
+          </div>
+          <div id="profileStats" class="muted small"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Goal</h2>
+        <form id="goalForm">
+          <div class="form-row">
+            <label>Goal weight (<span class="weight-unit-label">kg</span>)
+              <input type="number" id="goalWeight" step="0.1" min="20" max="500">
+            </label>
+            <label>Target date
+              <input type="date" id="goalDate">
+            </label>
+          </div>
+          <div id="goalAdvice" class="muted small"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Eating Window (Intermittent Fasting)</h2>
+        <form id="fastingForm" class="form-row">
+          <label>First meal from
+            <input type="time" id="windowStart" value="12:00">
+          </label>
+          <label>Last meal by
+            <input type="time" id="windowEnd" value="20:00">
+          </label>
+        </form>
+        <div id="windowSummary" class="muted small"></div>
+      </div>
+
+      <div class="card">
+        <h2>Water Goal</h2>
+        <form id="waterGoalForm" class="form-row">
+          <label>Daily goal (<span id="waterGoalUnitLabel">ml</span>)
+            <input type="number" id="waterGoalInput" min="1" step="any">
+          </label>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Your Data</h2>
+        <p class="muted small">Everything is stored privately on this device. Export a backup if you switch devices.</p>
+        <div class="form-row">
+          <button class="btn" id="exportBtn">Export backup</button>
+          <button class="btn" id="importBtn">Import backup</button>
+          <input type="file" id="importFile" accept="application/json" hidden>
+        </div>
+        <button class="btn danger full" id="resetBtn">Erase all data</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="today"><span class="ico">🍽️</span>Today</button>
+    <button class="tab-btn" data-tab="history"><span class="ico">📒</span>History</button>
+    <button class="tab-btn" data-tab="weight"><span class="ico">⚖️</span>Weight</button>
+    <button class="tab-btn" data-tab="settings"><span class="ico">⚙️</span>Settings</button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
