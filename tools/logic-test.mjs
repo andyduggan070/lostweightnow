@@ -12,14 +12,16 @@ const slice = (from, to) => {
 
 const logic =
   slice("const STORE_KEY", "/* ---------------- rendering: fasting") +
-  src.slice(src.indexOf("function expectedWeightKg"), src.indexOf("function renderGoalStatus"));
+  src.slice(src.indexOf("function expectedWeightKg"), src.indexOf("function renderGoalStatus")) +
+  slice("function mergeStates", "function loadGis");
 
 global.localStorage = { getItem: () => null, setItem: () => {} };
 global.document = { querySelector: () => null, querySelectorAll: () => [] };
 
 const api = new Function(
+  "var scheduleCloudPush = () => {};\n" + // defined elsewhere in the real app; stubbed for pure-logic tests
   logic +
-  "\nreturn { state, windowInfo, analyzeMeal, nextMealAdvice, expectedWeightKg, fmtWater, kgToDisplay, displayToKg, dateKey, logBeverage, BEVERAGES };"
+  "\nreturn { state, windowInfo, analyzeMeal, nextMealAdvice, expectedWeightKg, fmtWater, kgToDisplay, displayToKg, dateKey, logBeverage, BEVERAGES, mergeStates };"
 )();
 
 let failures = 0;
@@ -138,6 +140,47 @@ const pk = api.dateKey(past);
 check("back-dated drink lands in its own day bucket", (state.water[pk] || []).length === 1, JSON.stringify(state.water));
 check("drink stores the chosen timestamp", state.water[pk][0].ts === past.getTime(), `${state.water[pk] && state.water[pk][0].ts} vs ${past.getTime()}`);
 check("back-dated drink is not in today's bucket", !state.water[api.dateKey(new Date())], "leaked into today");
+
+// --- cloud-sync merge ---
+const base = () => ({ profile: { weightUnit: "kg" }, goal: {}, fasting: { start: "12:00", end: "20:00" }, waterGoalMl: 2000, water: {}, meals: [], weights: [], updatedAt: 0 });
+
+let A = base(), B = base();
+A.meals = [{ id: "m1", desc: "eggs" }];
+B.meals = [{ id: "m2", desc: "salad" }];
+let m = api.mergeStates(A, B);
+check("merge unions meals from both devices", m.meals.length === 2 && m.meals.some(x => x.id === "m1") && m.meals.some(x => x.id === "m2"));
+
+A = base(); B = base();
+A.meals = [{ id: "m1", desc: "eggs" }]; B.meals = [{ id: "m1", desc: "eggs" }];
+m = api.mergeStates(A, B);
+check("merge dedupes meals by id", m.meals.length === 1);
+
+A = base(); B = base();
+A.water = { "2026-06-21": [{ ts: 1, ml: 250, type: "water" }] };
+B.water = { "2026-06-21": [{ ts: 2, ml: 350, type: "coffee" }] };
+m = api.mergeStates(A, B);
+check("merge unions same-day water entries by ts", m.water["2026-06-21"].length === 2);
+
+A = base(); B = base();
+A.water = { "2026-06-20": [{ ts: 5, ml: 250, type: "water" }] };
+B.water = { "2026-06-21": [{ ts: 9, ml: 500, type: "water" }] };
+m = api.mergeStates(A, B);
+check("merge keeps water across different days", !!m.water["2026-06-20"] && !!m.water["2026-06-21"]);
+
+A = base(); B = base();
+A.weights = [{ date: "2026-06-01", kg: 98 }]; B.weights = [{ date: "2026-06-08", kg: 97 }];
+m = api.mergeStates(A, B);
+check("merge unions weigh-ins by date", m.weights.length === 2);
+
+A = base(); A.updatedAt = 100; A.waterGoalMl = 2000; A.profile = { weightUnit: "kg" };
+B = base(); B.updatedAt = 200; B.waterGoalMl = 3000; B.profile = { weightUnit: "lb" };
+m = api.mergeStates(A, B);
+check("merge takes scalar settings from the newer side", m.waterGoalMl === 3000 && m.profile.weightUnit === "lb", `goal=${m.waterGoalMl}`);
+
+A = base(); A.updatedAt = 500; A.goal = { weightKg: 85 };
+B = base(); B.updatedAt = 200; B.goal = { weightKg: 90 };
+m = api.mergeStates(A, B);
+check("older side does not clobber newer settings", m.goal.weightKg === 85);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll checks passed");
 process.exit(failures ? 1 : 0);

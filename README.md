@@ -27,6 +27,37 @@ installable web app (PWA). All data stays privately on your device.
   estimated daily calorie guide. Units: kg/lb and ml/fl oz.
 - **Offline & private** — works without a connection after first load;
   data lives in your browser storage with export/import backup.
+- **Cloud sync (Google Drive, optional)** — connect your Google account to
+  back up automatically to a `LostWeightNow` folder in your own Drive and sync
+  between your iPhone and iPad. Data syncs on open and after each change (while
+  the app is open and online); entries are merged across devices so nothing is
+  lost. Uses Google sign-in (OAuth) with the `drive.file` scope, so the app can
+  only ever see the files it creates — never the rest of your Drive, and never
+  your password.
+
+## Cloud sync setup (one-time)
+
+To enable Google Drive sync you create a free Google OAuth Client ID and paste
+it into **Settings → Cloud Sync**:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and
+   create a project (any name).
+2. **APIs & Services → Library →** enable the **Google Drive API**.
+3. **APIs & Services → OAuth consent screen:** choose **External**, fill in an
+   app name and your email, and add your own Google address under **Test
+   users**. Leave it in **Testing** mode (no Google verification needed for
+   personal use).
+4. **APIs & Services → Credentials → Create credentials → OAuth client ID →
+   Web application.** Under **Authorized JavaScript origins** add your app URL
+   (e.g. `https://looseweightnow.netlify.app`). Create it and copy the
+   **Client ID** (ends in `.apps.googleusercontent.com`).
+5. In the app: **Settings → Cloud Sync**, paste the Client ID, tap **Connect
+   Google Drive**, and sign in. Repeat the paste+connect on your other device
+   with the **same** Client ID to sync them.
+
+Notes: sign-in tokens last about an hour — the app refreshes silently when you
+reopen it if your Google session is active, otherwise tap **Connect** again.
+Sync runs while the app is open; it can't sync in the background when closed.
 
 ## Deploy (Netlify)
 

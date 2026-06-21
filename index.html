@@ -223,8 +223,23 @@
       </div>
 
       <div class="card">
+        <h2>Cloud Sync (Google Drive)</h2>
+        <p class="muted small">Back up automatically to your own Google Drive and sync between your iPhone and iPad. Your data is saved to a <strong>LostWeightNow</strong> folder in your Drive. Nothing is stored anywhere else.</p>
+        <label>Google OAuth Client ID
+          <input type="text" id="driveClientId" placeholder="xxxxxxxx.apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </label>
+        <p class="muted small">One-time setup — see the steps in the app's README to create this in Google Cloud (free).</p>
+        <div class="form-row">
+          <button class="btn primary" id="driveConnectBtn">Connect Google Drive</button>
+          <button class="btn" id="driveSyncBtn" hidden>Sync now</button>
+          <button class="btn" id="driveDisconnectBtn" hidden>Disconnect</button>
+        </div>
+        <div id="driveStatus" class="muted small"></div>
+      </div>
+
+      <div class="card">
         <h2>Your Data</h2>
-        <p class="muted small">Everything is stored privately on this device. Export a backup if you switch devices.</p>
+        <p class="muted small">Your data is stored on this device, and (if you connect cloud sync above) backed up to your Google Drive. Export a manual backup any time.</p>
         <div class="form-row">
           <button class="btn" id="exportBtn">Export backup</button>
           <button class="btn" id="importBtn">Import backup</button>
