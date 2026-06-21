@@ -238,8 +238,28 @@
       </div>
 
       <div class="card">
+        <h2>AI Coach (Google Gemini)</h2>
+        <p class="muted small">Optional. When on, each meal is sent to Google Gemini for richer, personalised coaching; the built-in coach is used offline or if this fails. Get a free API key at <strong>aistudio.google.com</strong>.</p>
+        <label class="switch-row"><input type="checkbox" id="aiEnabled"> Use Gemini as my coach</label>
+        <label>Gemini API key
+          <input type="password" id="aiKey" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </label>
+        <label>Model
+          <input type="text" id="aiModel" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </label>
+        <label>Coach persona &amp; instructions
+          <textarea id="aiPrompt" rows="5" placeholder="In your role as a dietary expert and coach…"></textarea>
+        </label>
+        <div class="form-row">
+          <button class="btn" id="aiTestBtn">Test connection</button>
+          <button class="btn ghost" id="aiResetPrompt">Reset persona</button>
+        </div>
+        <div id="aiStatus" class="muted small"></div>
+      </div>
+
+      <div class="card">
         <h2>Your Data</h2>
-        <p class="muted small">Your data is stored on this device, and (if you connect cloud sync above) backed up to your Google Drive. Export a manual backup any time.</p>
+        <p class="muted small">Your data is stored on this device and (if connected) synced to your Google Drive. <strong>Export backup</strong> saves a JSON file — including your Drive Client ID, Gemini API key and coach persona — which you can keep in Files / iCloud and re-import on another device. Keep that file private, as it contains your keys.</p>
         <div class="form-row">
           <button class="btn" id="exportBtn">Export backup</button>
           <button class="btn" id="importBtn">Import backup</button>
@@ -257,6 +277,6 @@
     <button class="tab-btn" data-tab="settings"><span class="ico">⚙️</span>Settings</button>
   </nav>
 
-  <script src="app.js"></script>
+  <script type="module" src="js/ui.js"></script>
 </body>
 </html>
