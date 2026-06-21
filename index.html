@@ -35,22 +35,38 @@
 
       <div class="card" id="waterCard">
         <div class="card-head">
-          <h2>Water</h2>
+          <h2>Drinks</h2>
           <span id="waterSummary" class="muted small"></span>
         </div>
         <div class="water-tally">
           <div class="water-remaining"><span id="waterRemaining">0</span><span class="unit" id="waterUnitLabel">ml</span></div>
-          <div class="muted small">remaining today</div>
+          <div class="muted small">remaining to your hydration goal</div>
         </div>
         <div class="progress-track water"><div id="waterProgress" class="progress-fill"></div></div>
+        <label class="drink-when">When
+          <input type="datetime-local" id="drinkTime">
+        </label>
         <div class="water-buttons">
           <button class="btn water-add" data-ml="250">+ Glass<br><span class="small" data-water-label="250"></span></button>
           <button class="btn water-add" data-ml="500">+ Bottle<br><span class="small" data-water-label="500"></span></button>
           <button class="btn water-add" data-ml="750">+ Large<br><span class="small" data-water-label="750"></span></button>
           <button class="btn ghost" id="waterUndo">Undo</button>
         </div>
-        <div id="waterDone" class="success-note hidden">🎉 Water goal reached — well done!</div>
+        <div class="drink-form">
+          <label>Other drink
+            <select id="drinkType"></select>
+          </label>
+          <label>Size
+            <select id="drinkSize"></select>
+          </label>
+          <button type="button" class="btn" id="drinkLog">Log</button>
+        </div>
+        <p class="muted small drink-hint">Water, coffee &amp; tea count toward your goal. Sugary drinks go to your meal log instead. Set <em>When</em> to back-date a drink.</p>
+        <div id="drinkNote" class="coach-box hidden"></div>
+        <div id="waterDone" class="success-note hidden">🎉 Hydration goal reached — well done!</div>
+        <ul id="todayDrinks" class="meal-list drinks-list"></ul>
       </div>
+
 
       <div class="card">
         <h2>Log a Meal</h2>

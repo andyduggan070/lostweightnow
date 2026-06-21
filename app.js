@@ -7,6 +7,33 @@ const STORE_KEY = "lwn-state-v1";
 const ML_PER_FLOZ = 29.5735;
 const KG_PER_LB = 0.45359237;
 
+/* Beverages. Hydrating drinks count toward the water goal; the rest are
+   logged as meals so they're coached and counted toward the day's intake.
+   `desc` for caloric drinks always contains a word the coach recognises. */
+const BEVERAGES = {
+  water:     { label: "Water",            hydrating: true },
+  sparkling: { label: "Sparkling water",  hydrating: true },
+  coffee:    { label: "Coffee",           hydrating: true,  note: "☕ Counts toward your goal. Keep it black/unsweetened, and caffeine earlier in the day." },
+  tea:       { label: "Tea",              hydrating: true,  note: "🍵 Counts toward your goal — skip the sugar to keep it that way." },
+  herbal:    { label: "Herbal tea",       hydrating: true,  note: "🌿 Caffeine-free and counts toward your goal. Nice choice." },
+  diet_soft: { label: "Diet/zero soft drink", hydrating: true, note: "No sugar, so it counts toward hydration — but try to make water your default." },
+  soft_drink:{ label: "Soft drink",       hydrating: false, desc: "Soft drink" },
+  juice:     { label: "Fruit juice",      hydrating: false, desc: "Fruit juice" },
+  energy:    { label: "Energy drink",     hydrating: false, desc: "Energy drink" },
+  smoothie:  { label: "Smoothie",         hydrating: false, desc: "Smoothie" },
+  alcohol:   { label: "Alcoholic drink",  hydrating: false, desc: "Alcoholic drink" }
+};
+
+const DRINK_SIZES = [
+  { key: "small",  label: "Small",  ml: 250 },
+  { key: "medium", label: "Medium", ml: 350 },
+  { key: "large",  label: "Large",  ml: 500 }
+];
+
+const HYDRATION_ICONS = { water: "💧", sparkling: "🫧", coffee: "☕", tea: "🍵", herbal: "🌿", diet_soft: "🥤" };
+const drinkLabel = (type) => (BEVERAGES[type] && BEVERAGES[type].label) || "Water";
+const drinkIcon = (type) => HYDRATION_ICONS[type] || "💧";
+
 /* ---------------- state ---------------- */
 
 const defaultState = () => ({
@@ -119,7 +146,7 @@ const FOOD_RULES = [
   { type: "good", label: "healthy fats", words: ["avocado", "almond", "walnut", "nuts", "olive oil", "seeds"] },
   { type: "bad", label: "fried food", words: ["fried", "fries", "deep-fried", "battered", "tempura", "crispy chicken", "chips"] },
   { type: "bad", label: "sugary treat", words: ["cake", "candy", "sweets", "chocolate", "cookie", "biscuit", "donut", "doughnut", "ice cream", "pastry", "muffin", "syrup", "brownie", "dessert", "pudding"] },
-  { type: "bad", label: "sugary drink", words: ["soda", "cola", "coke", "fizzy", "energy drink", "milkshake", "frappuccino", "sweet tea", "lemonade"] },
+  { type: "bad", label: "sugary drink", words: ["soda", "cola", "coke", "fizzy", "energy drink", "milkshake", "frappuccino", "sweet tea", "lemonade", "soft drink", "juice", "smoothie"] },
   { type: "warn", label: "refined carbs", words: ["white bread", "white rice", "bagel", "croissant", "pizza", "pasta", "noodles", "naan", "white roll"] },
   { type: "warn", label: "fast food", words: ["burger", "hot dog", "hotdog", "kebab", "takeaway", "take-away", "takeout", "mcdonald", "kfc", "domino", "taco bell", "nuggets"] },
   { type: "warn", label: "processed meat", words: ["bacon", "sausage", "salami", "pepperoni", "ham ", "spam", "deli meat"] },
@@ -203,6 +230,47 @@ function nextMealAdvice(at = new Date()) {
   return `Your next recommended meal is at ${fmtHM(win.start)} (${fmtDuration(win.minsToNextStart)} from now).`;
 }
 
+/* Create a meal entry, run coaching on it, persist, and return the analysis. */
+function addMeal(desc, portion, when) {
+  const analysis = analyzeMeal(desc, portion, when);
+  state.meals.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    desc, time: when.toISOString(), portion,
+    flags: analysis.flags, tone: analysis.tone, message: analysis.message,
+    outsideWindow: !windowInfo(when).inWindow
+  });
+  save();
+  return analysis;
+}
+
+/* ---------------- beverages ---------------- */
+
+const SIZE_TO_PORTION = { small: "small", medium: "medium", large: "large" };
+
+// Record a hydrating drink toward the water goal at a given time.
+function addHydration(ml, type, when) {
+  const k = dateKey(when);
+  (state.water[k] = state.water[k] || []).push({ ml, ts: when.getTime(), type });
+  save();
+}
+
+// Log a drink at `when`. Hydrating drinks go toward the water goal; the rest
+// become coached meals. Returns { hydrating, note?, analysis? } for the UI.
+function logBeverage(typeKey, sizeKey, when = new Date()) {
+  const bev = BEVERAGES[typeKey];
+  const size = DRINK_SIZES.find(s => s.key === sizeKey) || DRINK_SIZES[0];
+  if (!bev) return null;
+
+  if (bev.hydrating) {
+    addHydration(size.ml, typeKey, when);
+    return { hydrating: true, note: bev.note || "" };
+  }
+
+  const desc = `${bev.desc} — ${fmtWater(size.ml)}`;
+  const analysis = addMeal(desc, SIZE_TO_PORTION[size.key] || "medium", when);
+  return { hydrating: false, analysis };
+}
+
 /* ---------------- rendering: fasting ---------------- */
 
 function renderFasting() {
@@ -255,12 +323,36 @@ function renderWater() {
   $$("[data-water-label]").forEach(el => {
     el.textContent = fmtWater(Number(el.getAttribute("data-water-label")));
   });
+  // keep drink-size labels in the selected water unit
+  const sizeSel = $("#drinkSize");
+  if (sizeSel) {
+    const cur = sizeSel.value;
+    sizeSel.innerHTML = DRINK_SIZES
+      .map(s => `<option value="${s.key}">${s.label} (${fmtWater(s.ml)})</option>`).join("");
+    if (cur) sizeSel.value = cur;
+  }
   $("#waterGoalUnitLabel").textContent = state.profile.waterUnit === "floz" ? "fl oz" : "ml";
   const goalInput = $("#waterGoalInput");
   if (document.activeElement !== goalInput) {
     goalInput.value = state.profile.waterUnit === "floz"
       ? Math.round(mlToDisplay(goal) * 10) / 10 : Math.round(goal);
   }
+}
+
+// today's hydrating drinks, timestamped, newest first, each deletable
+function renderDrinks() {
+  const k = todayKey();
+  const entries = (state.water[k] || []).slice().sort((a, b) => b.ts - a.ts);
+  $("#todayDrinks").innerHTML = entries.map(e => {
+    const type = e.type || "water";
+    return `<li class="meal-item" data-ts="${e.ts}" data-date="${k}">
+      <div class="meal-top">
+        <span class="meal-desc"><span class="drink-icon">${drinkIcon(type)}</span>${drinkLabel(type)}</span>
+        <span class="meal-meta">${fmtTime(e.ts)} · ${fmtWater(e.ml)}
+          <button class="meal-del drink-del" title="Delete" aria-label="Delete drink">✕</button></span>
+      </div>
+    </li>`;
+  }).join("");
 }
 
 /* ---------------- rendering: meals ---------------- */
@@ -290,20 +382,31 @@ function renderMeals() {
   $("#todayMeals").innerHTML = todays.map(mealItemHTML).join("");
   $("#noMeals").classList.toggle("hidden", todays.length > 0);
 
-  // history grouped by day, newest first
+  // history grouped by day (meals + drinks), newest first
   const byDay = {};
-  for (const m of state.meals) {
-    const k = dateKey(m.time);
-    (byDay[k] = byDay[k] || []).push(m);
+  for (const m of state.meals) (byDay[dateKey(m.time)] ||= { meals: [], drinks: [] }).meals.push(m);
+  for (const k of Object.keys(state.water)) {
+    if ((state.water[k] || []).length) (byDay[k] ||= { meals: [], drinks: [] }).drinks = state.water[k];
   }
   const days = Object.keys(byDay).sort().reverse();
   $("#historyList").innerHTML = days.length
     ? days.map(k => {
-        const items = byDay[k].sort((a, b) => new Date(a.time) - new Date(b.time)).map(mealItemHTML).join("");
-        const water = (state.water[k] || []).reduce((s, e) => s + e.ml, 0);
-        return `<div class="history-day"><h3>${fmtDate(k)} · 💧 ${fmtWater(water)}</h3><ul class="meal-list">${items}</ul></div>`;
+        const day = byDay[k];
+        const meals = day.meals.sort((a, b) => new Date(a.time) - new Date(b.time)).map(mealItemHTML).join("");
+        const water = day.drinks.reduce((s, e) => s + e.ml, 0);
+        const drinks = day.drinks.slice().sort((a, b) => a.ts - b.ts).map(e => {
+          const type = e.type || "water";
+          return `<li class="meal-item">
+            <div class="meal-top">
+              <span class="meal-desc"><span class="drink-icon">${drinkIcon(type)}</span>${drinkLabel(type)}</span>
+              <span class="meal-meta">${fmtTime(e.ts)} · ${fmtWater(e.ml)}</span>
+            </div></li>`;
+        }).join("");
+        return `<div class="history-day"><h3>${fmtDate(k)} · 💧 ${fmtWater(water)}</h3>
+          ${meals ? `<ul class="meal-list">${meals}</ul>` : ""}
+          ${drinks ? `<ul class="meal-list drinks-list">${drinks}</ul>` : ""}</div>`;
       }).join("")
-    : `<p class="muted">No meals logged yet.</p>`;
+    : `<p class="muted">Nothing logged yet.</p>`;
 }
 
 function renderDailyReview() {
@@ -547,6 +650,7 @@ function renderGoalAdvice() {
 function renderAll() {
   renderFasting();
   renderWater();
+  renderDrinks();
   renderMeals();
   renderDailyReview();
   renderGoalStatus();
@@ -575,14 +679,7 @@ function setupMeals() {
     if (!desc) return;
     const when = new Date($("#mealTime").value);
     const portion = $("#mealPortion").value;
-    const analysis = analyzeMeal(desc, portion, when);
-    state.meals.push({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      desc, time: when.toISOString(), portion,
-      flags: analysis.flags, tone: analysis.tone, message: analysis.message,
-      outsideWindow: !windowInfo(when).inWindow
-    });
-    save();
+    const analysis = addMeal(desc, portion, when);
 
     const box = $("#coachFeedback");
     box.className = "coach-box " + (analysis.tone === "good" ? "good" : analysis.tone === "warn" ? "warn" : "");
@@ -596,7 +693,12 @@ function setupMeals() {
   });
 
   document.addEventListener("click", (e) => {
-    if (e.target.classList.contains("meal-del") && !e.target.classList.contains("weight-del")) {
+    if (e.target.classList.contains("drink-del")) {
+      const li = e.target.closest("li");
+      const ts = Number(li.dataset.ts), date = li.dataset.date;
+      if (state.water[date]) state.water[date] = state.water[date].filter(x => x.ts !== ts);
+      save(); renderAll();
+    } else if (e.target.classList.contains("meal-del") && !e.target.classList.contains("weight-del")) {
       const li = e.target.closest(".meal-item");
       state.meals = state.meals.filter(m => m.id !== li.dataset.id);
       save(); renderAll();
@@ -610,15 +712,45 @@ function setupMeals() {
 }
 
 function setupWater() {
+  // the time applied to any drink logged; defaults to now, reset after each log
+  $("#drinkTime").value = toLocalInputValue(new Date());
+  const drinkWhen = () => {
+    const v = $("#drinkTime").value;
+    return v ? new Date(v) : new Date();
+  };
+  const resetWhen = () => { $("#drinkTime").value = toLocalInputValue(new Date()); };
+
+  // quick water buttons
   $$(".water-add").forEach(btn => btn.addEventListener("click", () => {
-    const k = todayKey();
-    (state.water[k] = state.water[k] || []).push({ ml: Number(btn.dataset.ml), ts: Date.now() });
-    save(); renderWater(); renderDailyReview();
+    addHydration(Number(btn.dataset.ml), "water", drinkWhen());
+    resetWhen(); renderAll();
   }));
   $("#waterUndo").addEventListener("click", () => {
     const arr = state.water[todayKey()];
-    if (arr && arr.length) { arr.pop(); save(); renderWater(); renderDailyReview(); }
+    if (arr && arr.length) { arr.pop(); save(); renderAll(); }
   });
+
+  // beverage type selector (sizes are filled/relabelled by renderWater)
+  $("#drinkType").innerHTML = Object.entries(BEVERAGES)
+    .map(([key, b]) => `<option value="${key}">${b.label}</option>`).join("");
+
+  $("#drinkLog").addEventListener("click", () => {
+    const res = logBeverage($("#drinkType").value, $("#drinkSize").value, drinkWhen());
+    if (!res) return;
+    resetWhen();
+    const note = $("#drinkNote");
+    if (res.hydrating) {
+      if (res.note) { note.className = "coach-box good"; note.innerHTML = res.note; note.classList.remove("hidden"); }
+      else note.classList.add("hidden");
+    } else {
+      const a = res.analysis;
+      note.className = "coach-box " + (a.tone === "good" ? "good" : a.tone === "warn" ? "warn" : "");
+      note.innerHTML = `<div class="coach-title">Coach says</div>${escapeHTML(a.message)} <em>Added to your meal log.</em>`;
+      note.classList.remove("hidden");
+    }
+    renderAll();
+  });
+
   $("#waterGoalForm").addEventListener("submit", e => e.preventDefault());
   $("#waterGoalInput").addEventListener("change", () => {
     const v = parseFloat($("#waterGoalInput").value);

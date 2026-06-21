@@ -1,0 +1,17 @@
+# Netlify deployment config for LostWeightNow.
+# Static site — no build step. Publishes the repo root as-is.
+
+[build]
+  publish = "."
+  command = ""
+
+# Service workers must never be served stale, or app updates won't reach the device.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
