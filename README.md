@@ -12,8 +12,10 @@ installable web app (PWA). All data stays privately on your device.
 - **Intermittent fasting** — set your eating window; the app tracks whether
   you're inside it, warns when a meal breaks the fast, and tells you exactly
   when your next recommended meal is.
-- **Water tracking** — set a daily goal and tap to log; a running tally shows
-  how much is remaining.
+- **Drinks tracking** — set a daily hydration goal and tap to log. Water,
+  coffee, tea and other no-sugar drinks count toward the goal with a running
+  remaining tally; sugary drinks (soft drinks, juice, energy drinks, alcohol)
+  are routed to your meal log instead, where they're coached and counted.
 - **Weekly weigh-ins** — charted against your goal trajectory, with a clear
   on-target / ahead / behind verdict and a reminder when a weigh-in is due.
 - **Goals** — enter a goal weight and target date; the app tells you the

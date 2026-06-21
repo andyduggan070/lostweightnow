@@ -7,6 +7,29 @@ const STORE_KEY = "lwn-state-v1";
 const ML_PER_FLOZ = 29.5735;
 const KG_PER_LB = 0.45359237;
 
+/* Beverages. Hydrating drinks count toward the water goal; the rest are
+   logged as meals so they're coached and counted toward the day's intake.
+   `desc` for caloric drinks always contains a word the coach recognises. */
+const BEVERAGES = {
+  water:     { label: "Water",            hydrating: true },
+  sparkling: { label: "Sparkling water",  hydrating: true },
+  coffee:    { label: "Coffee",           hydrating: true,  note: "☕ Counts toward your goal. Keep it black/unsweetened, and caffeine earlier in the day." },
+  tea:       { label: "Tea",              hydrating: true,  note: "🍵 Counts toward your goal — skip the sugar to keep it that way." },
+  herbal:    { label: "Herbal tea",       hydrating: true,  note: "🌿 Caffeine-free and counts toward your goal. Nice choice." },
+  diet_soft: { label: "Diet/zero soft drink", hydrating: true, note: "No sugar, so it counts toward hydration — but try to make water your default." },
+  soft_drink:{ label: "Soft drink",       hydrating: false, desc: "Soft drink" },
+  juice:     { label: "Fruit juice",      hydrating: false, desc: "Fruit juice" },
+  energy:    { label: "Energy drink",     hydrating: false, desc: "Energy drink" },
+  smoothie:  { label: "Smoothie",         hydrating: false, desc: "Smoothie" },
+  alcohol:   { label: "Alcoholic drink",  hydrating: false, desc: "Alcoholic drink" }
+};
+
+const DRINK_SIZES = [
+  { key: "small",  label: "Small",  ml: 250 },
+  { key: "medium", label: "Medium", ml: 350 },
+  { key: "large",  label: "Large",  ml: 500 }
+];
+
 /* ---------------- state ---------------- */
 
 const defaultState = () => ({
@@ -119,7 +142,7 @@ const FOOD_RULES = [
   { type: "good", label: "healthy fats", words: ["avocado", "almond", "walnut", "nuts", "olive oil", "seeds"] },
   { type: "bad", label: "fried food", words: ["fried", "fries", "deep-fried", "battered", "tempura", "crispy chicken", "chips"] },
   { type: "bad", label: "sugary treat", words: ["cake", "candy", "sweets", "chocolate", "cookie", "biscuit", "donut", "doughnut", "ice cream", "pastry", "muffin", "syrup", "brownie", "dessert", "pudding"] },
-  { type: "bad", label: "sugary drink", words: ["soda", "cola", "coke", "fizzy", "energy drink", "milkshake", "frappuccino", "sweet tea", "lemonade"] },
+  { type: "bad", label: "sugary drink", words: ["soda", "cola", "coke", "fizzy", "energy drink", "milkshake", "frappuccino", "sweet tea", "lemonade", "soft drink", "juice", "smoothie"] },
   { type: "warn", label: "refined carbs", words: ["white bread", "white rice", "bagel", "croissant", "pizza", "pasta", "noodles", "naan", "white roll"] },
   { type: "warn", label: "fast food", words: ["burger", "hot dog", "hotdog", "kebab", "takeaway", "take-away", "takeout", "mcdonald", "kfc", "domino", "taco bell", "nuggets"] },
   { type: "warn", label: "processed meat", words: ["bacon", "sausage", "salami", "pepperoni", "ham ", "spam", "deli meat"] },
@@ -203,6 +226,42 @@ function nextMealAdvice(at = new Date()) {
   return `Your next recommended meal is at ${fmtHM(win.start)} (${fmtDuration(win.minsToNextStart)} from now).`;
 }
 
+/* Create a meal entry, run coaching on it, persist, and return the analysis. */
+function addMeal(desc, portion, when) {
+  const analysis = analyzeMeal(desc, portion, when);
+  state.meals.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    desc, time: when.toISOString(), portion,
+    flags: analysis.flags, tone: analysis.tone, message: analysis.message,
+    outsideWindow: !windowInfo(when).inWindow
+  });
+  save();
+  return analysis;
+}
+
+/* ---------------- beverages ---------------- */
+
+const SIZE_TO_PORTION = { small: "small", medium: "medium", large: "large" };
+
+// Log a drink. Hydrating drinks go toward the water goal; the rest become
+// coached meals. Returns { hydrating, note?, analysis? } for the UI.
+function logBeverage(typeKey, sizeKey, when = new Date()) {
+  const bev = BEVERAGES[typeKey];
+  const size = DRINK_SIZES.find(s => s.key === sizeKey) || DRINK_SIZES[0];
+  if (!bev) return null;
+
+  if (bev.hydrating) {
+    const k = dateKey(when);
+    (state.water[k] = state.water[k] || []).push({ ml: size.ml, ts: when.getTime(), type: typeKey });
+    save();
+    return { hydrating: true, note: bev.note || "" };
+  }
+
+  const desc = `${bev.desc} — ${fmtWater(size.ml)}`;
+  const analysis = addMeal(desc, SIZE_TO_PORTION[size.key] || "medium", when);
+  return { hydrating: false, analysis };
+}
+
 /* ---------------- rendering: fasting ---------------- */
 
 function renderFasting() {
@@ -255,6 +314,14 @@ function renderWater() {
   $$("[data-water-label]").forEach(el => {
     el.textContent = fmtWater(Number(el.getAttribute("data-water-label")));
   });
+  // keep drink-size labels in the selected water unit
+  const sizeSel = $("#drinkSize");
+  if (sizeSel) {
+    const cur = sizeSel.value;
+    sizeSel.innerHTML = DRINK_SIZES
+      .map(s => `<option value="${s.key}">${s.label} (${fmtWater(s.ml)})</option>`).join("");
+    if (cur) sizeSel.value = cur;
+  }
   $("#waterGoalUnitLabel").textContent = state.profile.waterUnit === "floz" ? "fl oz" : "ml";
   const goalInput = $("#waterGoalInput");
   if (document.activeElement !== goalInput) {
@@ -575,14 +642,7 @@ function setupMeals() {
     if (!desc) return;
     const when = new Date($("#mealTime").value);
     const portion = $("#mealPortion").value;
-    const analysis = analyzeMeal(desc, portion, when);
-    state.meals.push({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      desc, time: when.toISOString(), portion,
-      flags: analysis.flags, tone: analysis.tone, message: analysis.message,
-      outsideWindow: !windowInfo(when).inWindow
-    });
-    save();
+    const analysis = addMeal(desc, portion, when);
 
     const box = $("#coachFeedback");
     box.className = "coach-box " + (analysis.tone === "good" ? "good" : analysis.tone === "warn" ? "warn" : "");
@@ -610,15 +670,37 @@ function setupMeals() {
 }
 
 function setupWater() {
+  // quick water buttons
   $$(".water-add").forEach(btn => btn.addEventListener("click", () => {
     const k = todayKey();
-    (state.water[k] = state.water[k] || []).push({ ml: Number(btn.dataset.ml), ts: Date.now() });
+    (state.water[k] = state.water[k] || []).push({ ml: Number(btn.dataset.ml), ts: Date.now(), type: "water" });
     save(); renderWater(); renderDailyReview();
   }));
   $("#waterUndo").addEventListener("click", () => {
     const arr = state.water[todayKey()];
     if (arr && arr.length) { arr.pop(); save(); renderWater(); renderDailyReview(); }
   });
+
+  // beverage type selector (sizes are filled/relabelled by renderWater)
+  $("#drinkType").innerHTML = Object.entries(BEVERAGES)
+    .map(([key, b]) => `<option value="${key}">${b.label}</option>`).join("");
+
+  $("#drinkLog").addEventListener("click", () => {
+    const res = logBeverage($("#drinkType").value, $("#drinkSize").value);
+    if (!res) return;
+    const note = $("#drinkNote");
+    if (res.hydrating) {
+      if (res.note) { note.className = "coach-box good"; note.innerHTML = res.note; note.classList.remove("hidden"); }
+      else note.classList.add("hidden");
+    } else {
+      const a = res.analysis;
+      note.className = "coach-box " + (a.tone === "good" ? "good" : a.tone === "warn" ? "warn" : "");
+      note.innerHTML = `<div class="coach-title">Coach says</div>${escapeHTML(a.message)} <em>Added to your meal log.</em>`;
+      note.classList.remove("hidden");
+    }
+    renderAll();
+  });
+
   $("#waterGoalForm").addEventListener("submit", e => e.preventDefault());
   $("#waterGoalInput").addEventListener("change", () => {
     const v = parseFloat($("#waterGoalInput").value);

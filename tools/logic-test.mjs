@@ -19,7 +19,7 @@ global.document = { querySelector: () => null, querySelectorAll: () => [] };
 
 const api = new Function(
   logic +
-  "\nreturn { state, windowInfo, analyzeMeal, nextMealAdvice, expectedWeightKg, fmtWater, kgToDisplay, displayToKg, dateKey };"
+  "\nreturn { state, windowInfo, analyzeMeal, nextMealAdvice, expectedWeightKg, fmtWater, kgToDisplay, displayToKg, dateKey, logBeverage, BEVERAGES };"
 )();
 
 let failures = 0;
@@ -91,6 +91,44 @@ check("kg->lb", Math.abs(api.kgToDisplay(100) - 220.46) < 0.01, `got ${api.kgToD
 check("lb->kg roundtrip", Math.abs(api.displayToKg(api.kgToDisplay(82.5)) - 82.5) < 1e-9);
 state.profile.waterUnit = "floz";
 check("ml->floz format", api.fmtWater(500) === "16.9 fl oz", `got ${api.fmtWater(500)}`);
+
+// --- beverages ---
+state.profile.weightUnit = "kg";
+state.profile.waterUnit = "ml";
+state.fasting = { start: "12:00", end: "20:00" };
+state.water = {}; state.meals = [];
+const noon = at(13);
+
+let r = api.logBeverage("coffee", "medium", noon);
+check("coffee is hydrating", r.hydrating === true, JSON.stringify(r));
+check("coffee added to water store", (state.water[api.dateKey(noon)] || []).reduce((s, e) => s + e.ml, 0) === 350, JSON.stringify(state.water));
+check("coffee NOT added to meals", state.meals.length === 0, `meals=${state.meals.length}`);
+check("coffee carries a coaching note", typeof r.note === "string" && r.note.length > 0);
+
+r = api.logBeverage("tea", "small", noon);
+check("tea is hydrating", r.hydrating === true);
+check("hydration total now 350+250=600", (state.water[api.dateKey(noon)] || []).reduce((s, e) => s + e.ml, 0) === 600);
+
+r = api.logBeverage("soft_drink", "large", noon);
+check("soft drink is NOT hydrating", r.hydrating === false, JSON.stringify(r));
+check("soft drink added to meals", state.meals.length === 1, `meals=${state.meals.length}`);
+check("soft drink flagged as sugary drink", r.analysis.flags.some(f => f.label === "sugary drink" && f.type === "bad"), JSON.stringify(r.analysis.flags));
+check("soft drink did NOT add to hydration", (state.water[api.dateKey(noon)] || []).reduce((s, e) => s + e.ml, 0) === 600);
+check("soft drink meal desc shows volume", /Soft drink — /.test(state.meals[0].desc), state.meals[0].desc);
+
+r = api.logBeverage("juice", "medium", noon);
+check("fruit juice routed to meals as sugary drink", r.hydrating === false && r.analysis.flags.some(f => f.label === "sugary drink"));
+
+r = api.logBeverage("alcohol", "medium", noon);
+check("alcohol routed to meals and flagged", r.hydrating === false && r.analysis.flags.some(f => f.label === "alcohol"));
+
+r = api.logBeverage("diet_soft", "medium", noon);
+check("diet soft drink counts as hydration", r.hydrating === true);
+
+// caloric drink outside the eating window should be coached as a fast breach
+state.water = {}; state.meals = [];
+r = api.logBeverage("soft_drink", "medium", at(9));
+check("soft drink at 09:00 flagged outside window", r.analysis.message.includes("outside your"), r.analysis.message);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll checks passed");
 process.exit(failures ? 1 : 0);
