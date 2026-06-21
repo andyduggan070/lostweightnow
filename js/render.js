@@ -84,11 +84,11 @@ function renderDrinks() {
   }).join("");
 }
 
-function mealItemHTML(meal) {
+function mealItemHTML(meal, showKj = true) {
   const flagsHTML = meal.flags.map(f =>
     `<span class="flag ${f.type === "good" ? "good" : f.type === "bad" ? "bad" : "warn"}">${f.label}</span>`).join("");
   const outside = meal.outsideWindow ? `<span class="flag bad">outside window</span>` : "";
-  const kj = meal.kj ? ` · ≈${meal.kj} kJ` : "";
+  const kj = (showKj && meal.kj) ? ` · ≈${meal.kj} kJ` : "";
   return `<li class="meal-item" data-id="${meal.id}">
     <div class="meal-top">
       <span class="meal-desc">${escapeHTML(meal.desc)}</span>
@@ -103,7 +103,7 @@ function renderMeals() {
   const today = todayKey();
   const todays = state.meals.filter(m => dateKey(m.time) === today)
     .sort((a, b) => new Date(a.time) - new Date(b.time));
-  $("#todayMeals").innerHTML = todays.map(mealItemHTML).join("");
+  $("#todayMeals").innerHTML = todays.map(m => mealItemHTML(m)).join("");
   $("#noMeals").classList.toggle("hidden", todays.length > 0);
 
   // history grouped by day (meals + drinks), newest first
@@ -116,8 +116,10 @@ function renderMeals() {
   $("#historyList").innerHTML = days.length
     ? days.map(k => {
         const day = byDay[k];
-        const meals = day.meals.sort((a, b) => new Date(a.time) - new Date(b.time)).map(mealItemHTML).join("");
+        const meals = day.meals.sort((a, b) => new Date(a.time) - new Date(b.time)).map(m => mealItemHTML(m, false)).join("");
         const water = day.drinks.reduce((s, e) => s + e.ml, 0);
+        const kjTotal = day.meals.reduce((s, m) => s + (m.kj || 0), 0);
+        const kjHead = kjTotal > 0 ? ` · ⚡ ${kjTotal} kJ` : "";
         const drinks = day.drinks.slice().sort((a, b) => a.ts - b.ts).map(e => {
           const type = e.type || "water";
           return `<li class="meal-item">
@@ -126,7 +128,7 @@ function renderMeals() {
               <span class="meal-meta">${fmtTime(e.ts)} · ${fmtWater(e.ml)}</span>
             </div></li>`;
         }).join("");
-        return `<div class="history-day"><h3>${fmtDate(k)} · 💧 ${fmtWater(water)}</h3>
+        return `<div class="history-day"><h3>${fmtDate(k)} · 💧 ${fmtWater(water)}${kjHead}</h3>
           ${meals ? `<ul class="meal-list">${meals}</ul>` : ""}
           ${drinks ? `<ul class="meal-list drinks-list">${drinks}</ul>` : ""}</div>`;
       }).join("")
