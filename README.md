@@ -39,6 +39,10 @@ installable web app (PWA). All data stays privately on your device.
   replace the built-in keyword coach with real AI dietary coaching. You can
   fully customise the coach's persona/instructions (e.g. *"In your role as a
   dietary expert and coach…"*). The built-in coach is the offline fallback.
+  When AI is on, each logged meal also gets a rough **kilojoule (kJ) estimate**
+  stored against it and shown in the meal list, with a running daily total in
+  the coach review. Estimates are approximate — they come from the model, not a
+  food database.
 
 ## AI coach setup (one-time)
 
@@ -46,7 +50,7 @@ installable web app (PWA). All data stays privately on your device.
    create a key (free tier; no billing required).
 2. In the app: **Settings → AI Coach (Google Gemini)**, tick **Use Gemini as my
    coach**, paste the key, optionally edit the **Model** (default
-   `gemini-2.0-flash`) and the **persona/instructions**, then **Test
+   `gemini-3.1-flash-lite`) and the **persona/instructions**, then **Test
    connection**.
 
 The key is stored only in your browser (and in your exported backup file — see

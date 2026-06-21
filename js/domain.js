@@ -169,17 +169,25 @@ function swapIdea(label) {
   return swaps[label] || "look for a grilled, baked or fresh alternative.";
 }
 
-/* Create a meal entry, run coaching on it, persist, and return the analysis. */
+/* Create a meal entry, run coaching on it, persist, and return the stored
+   meal record (so callers can later attach an AI kilojoule estimate). */
 export function addMeal(desc, portion, when) {
   const analysis = analyzeMeal(desc, portion, when);
-  state.meals.push({
+  const meal = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     desc, time: when.toISOString(), portion,
     flags: analysis.flags, tone: analysis.tone, message: analysis.message,
     outsideWindow: !windowInfo(when).inWindow
-  });
+  };
+  state.meals.push(meal);
   save();
-  return analysis;
+  return meal;
+}
+
+// Attach an AI kilojoule estimate to a stored meal and persist.
+export function setMealKj(id, kj) {
+  const m = state.meals.find(x => x.id === id);
+  if (m && kj > 0) { m.kj = Math.round(kj); save(); }
 }
 
 const SIZE_TO_PORTION = { small: "small", medium: "medium", large: "large" };
@@ -205,8 +213,8 @@ export function logBeverage(typeKey, sizeKey, when = new Date()) {
 
   const desc = `${bev.desc} — ${fmtWater(size.ml)}`;
   const portion = SIZE_TO_PORTION[size.key] || "medium";
-  const analysis = addMeal(desc, portion, when);
-  return { hydrating: false, analysis, meal: { desc, portion, time: when.toISOString() } };
+  const meal = addMeal(desc, portion, when);
+  return { hydrating: false, analysis: { flags: meal.flags, tone: meal.tone, message: meal.message }, meal };
 }
 
 export function waterToday() {
@@ -264,19 +272,27 @@ export function mergeStates(a, b) {
 /* ---------------- AI coach (Google Gemini) ---------------- */
 
 const AI_STORE = "lwn-ai-v1";
-export const DEFAULT_MODEL = "gemini-2.0-flash";
+export const DEFAULT_MODEL = "gemini-3.1-flash-lite";
+// Models Google has retired — auto-migrate stored configs off these.
+const DEAD_MODELS = new Set([
+  "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash-001",
+  "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-pro"
+]);
 export const DEFAULT_PERSONA =
   "In your role as an honest, supportive dietary expert and coach, help the user lose weight " +
   "through intermittent fasting and better food choices. Give concise feedback (2–4 sentences): " +
   "note what's good, be direct about poor choices and oversized portions, take meal timing relative " +
   "to their fasting window into account, and finish with one practical, specific tip. Be encouraging " +
-  "but truthful — never preachy, never invent calorie numbers you can't know.";
+  "but truthful — never preachy.";
 
 export let aiCfg = loadAiCfg();
 function loadAiCfg() {
-  try { return Object.assign({ enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA },
+  let cfg;
+  try { cfg = Object.assign({ enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA },
     JSON.parse(localStorage.getItem(AI_STORE) || "{}")); }
-  catch { return { enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA }; }
+  catch { cfg = { enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA }; }
+  if (!cfg.model || DEAD_MODELS.has(cfg.model)) cfg.model = DEFAULT_MODEL;
+  return cfg;
 }
 export function saveAiCfg() { localStorage.setItem(AI_STORE, JSON.stringify(aiCfg)); }
 export const aiReady = () => aiCfg.enabled && aiCfg.apiKey && navigator.onLine;
@@ -323,6 +339,45 @@ export async function geminiGenerate(userText) {
   const out = (text || []).map(p => p.text || "").join("").trim();
   if (!out) throw new Error("empty response");
   return out;
+}
+
+// Structured coaching: returns { coaching, kilojoules } in one call, so each
+// logged meal gets both feedback and a stored kJ estimate. The schema forces
+// a kilojoules field regardless of the user's custom persona.
+export async function geminiCoach(userText) {
+  if (!aiCfg.apiKey) throw new Error("no API key");
+  const model = aiCfg.model || DEFAULT_MODEL;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(aiCfg.apiKey)}`;
+  const system = (aiCfg.systemPrompt || DEFAULT_PERSONA) +
+    "\n\nAlso give your single best rough estimate of the item's total food energy in kilojoules " +
+    "(kJ) as a positive integer in the 'kilojoules' field. An approximation is expected and useful; " +
+    "estimate sensibly from the description and portion size rather than returning 0.";
+  const body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 500,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        properties: { coaching: { type: "STRING" }, kilojoules: { type: "INTEGER" } },
+        required: ["coaching", "kilojoules"]
+      }
+    }
+  };
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) {
+    let detail = "HTTP " + res.status;
+    try { const e = await res.json(); detail = (e.error && e.error.message) || detail; } catch {}
+    throw new Error(detail);
+  }
+  const data = await res.json();
+  const parts = (((data.candidates || [])[0] || {}).content || {}).parts;
+  const raw = (parts || []).map(p => p.text || "").join("").trim();
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { throw new Error("could not parse AI response"); }
+  return { coaching: (parsed.coaching || "").trim(), kilojoules: Number(parsed.kilojoules) };
 }
 
 /* ---------------- backup bundle ---------------- */
