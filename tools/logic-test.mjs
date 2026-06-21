@@ -130,6 +130,16 @@ check("back-dated drink lands in its own day bucket", (state.water[pk] || []).le
 check("drink stores the chosen timestamp", state.water[pk][0].ts === past.getTime());
 check("back-dated drink is not in today's bucket", !state.water[dateKey(new Date())], "leaked into today");
 
+// --- meal record + kJ estimate storage ---
+state.meals = [];
+const stored = domain.addMeal("porridge with berries", "small", at(8));
+check("addMeal returns the stored meal with an id", stored && typeof stored.id === "string");
+check("new meal has no kJ until estimated", stored.kj === undefined);
+domain.setMealKj(stored.id, 1234.6);
+check("setMealKj stores a rounded kJ on the meal", state.meals.find(x => x.id === stored.id).kj === 1235);
+domain.setMealKj(stored.id, 0);
+check("setMealKj ignores non-positive estimates", state.meals.find(x => x.id === stored.id).kj === 1235);
+
 // --- cloud-sync merge ---
 const base = () => ({ profile: { weightUnit: "kg" }, goal: {}, fasting: { start: "12:00", end: "20:00" }, waterGoalMl: 2000, water: {}, meals: [], weights: [], updatedAt: 0 });
 

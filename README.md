@@ -39,6 +39,10 @@ installable web app (PWA). All data stays privately on your device.
   replace the built-in keyword coach with real AI dietary coaching. You can
   fully customise the coach's persona/instructions (e.g. *"In your role as a
   dietary expert and coach…"*). The built-in coach is the offline fallback.
+  When AI is on, each logged meal also gets a rough **kilojoule (kJ) estimate**
+  stored against it and shown in the meal list, with a running daily total in
+  the coach review. Estimates are approximate — they come from the model, not a
+  food database.
 
 ## AI coach setup (one-time)
 

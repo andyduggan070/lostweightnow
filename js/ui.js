@@ -4,9 +4,9 @@
 import { $, $$, todayKey, toLocalInputValue, escapeHTML } from "./util.js";
 import { state, save, replaceState, defaultState, latestWeight } from "./store.js";
 import {
-  addMeal, addHydration, logBeverage, BEVERAGES,
+  addMeal, addHydration, logBeverage, setMealKj, BEVERAGES,
   displayToKg, displayToMl,
-  aiCfg, saveAiCfg, aiReady, geminiGenerate, mealContextText,
+  aiCfg, saveAiCfg, aiReady, geminiGenerate, geminiCoach, mealContextText,
   DEFAULT_MODEL, DEFAULT_PERSONA, buildBackup, parseBackup
 } from "./domain.js";
 import {
@@ -23,16 +23,28 @@ function renderCoach(box, tone, title, html) {
 }
 
 // Show the rule-based coaching immediately; upgrade to Gemini if configured.
+// The AI call also returns a kilojoule estimate, which is stored on the meal.
 async function coach(box, meal, fallbackText, tone) {
   renderCoach(box, tone, "Coach says", escapeHTML(fallbackText));
   if (!aiReady()) return;
   renderCoach(box, tone, "Coach (AI)", "<em>Thinking…</em>");
+  const ctx = mealContextText(meal);
   try {
-    const text = await geminiGenerate(mealContextText(meal));
-    renderCoach(box, tone, "Coach (AI)", escapeHTML(text));
-  } catch (err) {
-    renderCoach(box, tone, "Coach says",
-      `${escapeHTML(fallbackText)} <span class="muted small">(AI unavailable: ${escapeHTML(err.message)})</span>`);
+    const { coaching, kilojoules } = await geminiCoach(ctx);
+    if (meal.id && Number.isFinite(kilojoules) && kilojoules > 0) setMealKj(meal.id, kilojoules);
+    const kj = Number.isFinite(kilojoules) && kilojoules > 0
+      ? ` <span class="kj-badge">≈ ${Math.round(kilojoules)} kJ</span>` : "";
+    renderCoach(box, tone, "Coach (AI)", escapeHTML(coaching || fallbackText) + kj);
+    renderAll();
+  } catch (jsonErr) {
+    // structured call failed (e.g. model lacks JSON mode) — fall back to plain text
+    try {
+      const text = await geminiGenerate(ctx);
+      renderCoach(box, tone, "Coach (AI)", escapeHTML(text));
+    } catch (err) {
+      renderCoach(box, tone, "Coach says",
+        `${escapeHTML(fallbackText)} <span class="muted small">(AI unavailable: ${escapeHTML(err.message)})</span>`);
+    }
   }
 }
 
@@ -55,9 +67,9 @@ function setupMeals() {
     if (!desc) return;
     const when = new Date($("#mealTime").value);
     const portion = $("#mealPortion").value;
-    const analysis = addMeal(desc, portion, when);
+    const meal = addMeal(desc, portion, when);
 
-    coach($("#coachFeedback"), { desc, portion, time: when.toISOString() }, analysis.message, analysis.tone);
+    coach($("#coachFeedback"), meal, meal.message, meal.tone);
 
     $("#mealDesc").value = "";
     $("#mealPortion").value = "medium";

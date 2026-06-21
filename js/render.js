@@ -88,10 +88,11 @@ function mealItemHTML(meal) {
   const flagsHTML = meal.flags.map(f =>
     `<span class="flag ${f.type === "good" ? "good" : f.type === "bad" ? "bad" : "warn"}">${f.label}</span>`).join("");
   const outside = meal.outsideWindow ? `<span class="flag bad">outside window</span>` : "";
+  const kj = meal.kj ? ` · ≈${meal.kj} kJ` : "";
   return `<li class="meal-item" data-id="${meal.id}">
     <div class="meal-top">
       <span class="meal-desc">${escapeHTML(meal.desc)}</span>
-      <span class="meal-meta">${fmtTime(meal.time)} · ${meal.portion}
+      <span class="meal-meta">${fmtTime(meal.time)} · ${meal.portion}${kj}
         <button class="meal-del" title="Delete" aria-label="Delete meal">✕</button></span>
     </div>
     <div class="meal-flags">${flagsHTML}${outside}</div>
@@ -148,8 +149,12 @@ function renderDailyReview() {
   const drunk = waterToday();
   const waterPct = Math.round((drunk / state.waterGoalMl) * 100);
 
+  const kjTotal = todays.reduce((s, m) => s + (m.kj || 0), 0);
+  const kjCount = todays.filter(m => m.kj).length;
+
   const lines = [];
   lines.push(`You've logged ${todays.length} meal${todays.length > 1 ? "s" : ""} today.`);
+  if (kjTotal > 0) lines.push(`Estimated intake: ≈${kjTotal} kJ${kjCount < todays.length ? ` (from ${kjCount} of ${todays.length} items)` : ""}.`);
   if (goods > bads && bads === 0) lines.push(`Food quality is strong — every flagged item was a good one. This is what progress looks like.`);
   else if (goods > bads) lines.push(`More good choices than poor ones today — solid, but the ${bads} weak spot${bads > 1 ? "s" : ""} are where the easy wins are.`);
   else if (bads > 0) lines.push(`Straight talk: today leaned toward foods that fight your goal (${bads} flagged vs ${goods} good). Tomorrow, plan your first meal before hunger decides for you.`);
