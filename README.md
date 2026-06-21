@@ -112,14 +112,30 @@ Download the repo as a folder and drag it onto the
 
 ## Development
 
-Plain HTML/CSS/JS — no build step. Run locally with any static server:
+Plain HTML/CSS/JS ES modules — no build step. Run locally with any static
+server:
 
 ```sh
 npx http-server -p 8080
 ```
 
-- `tools/logic-test.mjs` — smoke tests for the fasting-window, coaching and
-  goal-trajectory logic (`node tools/logic-test.mjs`).
+The JavaScript is split into focused modules under `js/` with a one-way
+dependency flow (each layer only imports from the ones above it):
+
+- `js/util.js` — pure helpers (DOM selectors, date/number formatting).
+- `js/store.js` — app state and persistence (`localStorage`).
+- `js/domain.js` — all logic: units, fasting window, coaching rules,
+  beverages, weight maths, sync merge, Gemini calls, backup bundles.
+  DOM-free, so it's unit-tested directly.
+- `js/render.js` — turns state into DOM.
+- `js/sync.js` — Google Drive cloud sync.
+- `js/ui.js` — event wiring, the live coach box, and app boot (entry point).
+
+Tooling:
+
+- `tools/logic-test.mjs` — unit tests that import `js/domain.js` directly and
+  cover the fasting window, coaching, goal trajectory, beverage routing, sync
+  merge and backup bundle (`node tools/logic-test.mjs`).
 - `tools/make_icons.py` — regenerates the app icons (stdlib only).
 - `tools/screenshot.mjs` — Playwright screenshots of each tab.
 
