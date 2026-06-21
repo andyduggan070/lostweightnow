@@ -866,7 +866,22 @@ renderAll();
 setInterval(renderFasting, 30 * 1000); // keep the fasting clock live
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  // If a service worker was already controlling this page, a controllerchange
+  // means a new version has taken over — reload once to run the fresh code.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading || !hadController) return;
+    reloading = true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    reg.update().catch(() => {});
+    // check for a new version whenever the app is brought back to the foreground
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") reg.update().catch(() => {});
+    });
+  }).catch(() => {});
 }
 
 })();
