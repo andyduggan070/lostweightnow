@@ -130,5 +130,14 @@ state.water = {}; state.meals = [];
 r = api.logBeverage("soft_drink", "medium", at(9));
 check("soft drink at 09:00 flagged outside window", r.analysis.message.includes("outside your"), r.analysis.message);
 
+// back-dated drinks are bucketed by the chosen day & keep their timestamp
+state.water = {};
+const past = new Date(2026, 0, 2, 7, 45); // 2 Jan 2026 07:45
+api.logBeverage("coffee", "small", past);
+const pk = api.dateKey(past);
+check("back-dated drink lands in its own day bucket", (state.water[pk] || []).length === 1, JSON.stringify(state.water));
+check("drink stores the chosen timestamp", state.water[pk][0].ts === past.getTime(), `${state.water[pk] && state.water[pk][0].ts} vs ${past.getTime()}`);
+check("back-dated drink is not in today's bucket", !state.water[api.dateKey(new Date())], "leaked into today");
+
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll checks passed");
 process.exit(failures ? 1 : 0);

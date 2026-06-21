@@ -16,6 +16,9 @@ installable web app (PWA). All data stays privately on your device.
   coffee, tea and other no-sugar drinks count toward the goal with a running
   remaining tally; sugary drinks (soft drinks, juice, energy drinks, alcohol)
   are routed to your meal log instead, where they're coached and counted.
+  Each drink is timestamped (with an editable date/time so you can back-date),
+  and the day's drinks are listed with their times on Today and in History so
+  you can see your drinking patterns.
 - **Weekly weigh-ins** — charted against your goal trajectory, with a clear
   on-target / ahead / behind verdict and a reminder when a weigh-in is due.
 - **Goals** — enter a goal weight and target date; the app tells you the

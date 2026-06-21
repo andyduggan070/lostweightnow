@@ -30,6 +30,10 @@ const DRINK_SIZES = [
   { key: "large",  label: "Large",  ml: 500 }
 ];
 
+const HYDRATION_ICONS = { water: "💧", sparkling: "🫧", coffee: "☕", tea: "🍵", herbal: "🌿", diet_soft: "🥤" };
+const drinkLabel = (type) => (BEVERAGES[type] && BEVERAGES[type].label) || "Water";
+const drinkIcon = (type) => HYDRATION_ICONS[type] || "💧";
+
 /* ---------------- state ---------------- */
 
 const defaultState = () => ({
@@ -243,17 +247,22 @@ function addMeal(desc, portion, when) {
 
 const SIZE_TO_PORTION = { small: "small", medium: "medium", large: "large" };
 
-// Log a drink. Hydrating drinks go toward the water goal; the rest become
-// coached meals. Returns { hydrating, note?, analysis? } for the UI.
+// Record a hydrating drink toward the water goal at a given time.
+function addHydration(ml, type, when) {
+  const k = dateKey(when);
+  (state.water[k] = state.water[k] || []).push({ ml, ts: when.getTime(), type });
+  save();
+}
+
+// Log a drink at `when`. Hydrating drinks go toward the water goal; the rest
+// become coached meals. Returns { hydrating, note?, analysis? } for the UI.
 function logBeverage(typeKey, sizeKey, when = new Date()) {
   const bev = BEVERAGES[typeKey];
   const size = DRINK_SIZES.find(s => s.key === sizeKey) || DRINK_SIZES[0];
   if (!bev) return null;
 
   if (bev.hydrating) {
-    const k = dateKey(when);
-    (state.water[k] = state.water[k] || []).push({ ml: size.ml, ts: when.getTime(), type: typeKey });
-    save();
+    addHydration(size.ml, typeKey, when);
     return { hydrating: true, note: bev.note || "" };
   }
 
@@ -330,6 +339,22 @@ function renderWater() {
   }
 }
 
+// today's hydrating drinks, timestamped, newest first, each deletable
+function renderDrinks() {
+  const k = todayKey();
+  const entries = (state.water[k] || []).slice().sort((a, b) => b.ts - a.ts);
+  $("#todayDrinks").innerHTML = entries.map(e => {
+    const type = e.type || "water";
+    return `<li class="meal-item" data-ts="${e.ts}" data-date="${k}">
+      <div class="meal-top">
+        <span class="meal-desc"><span class="drink-icon">${drinkIcon(type)}</span>${drinkLabel(type)}</span>
+        <span class="meal-meta">${fmtTime(e.ts)} · ${fmtWater(e.ml)}
+          <button class="meal-del drink-del" title="Delete" aria-label="Delete drink">✕</button></span>
+      </div>
+    </li>`;
+  }).join("");
+}
+
 /* ---------------- rendering: meals ---------------- */
 
 function mealItemHTML(meal) {
@@ -357,20 +382,31 @@ function renderMeals() {
   $("#todayMeals").innerHTML = todays.map(mealItemHTML).join("");
   $("#noMeals").classList.toggle("hidden", todays.length > 0);
 
-  // history grouped by day, newest first
+  // history grouped by day (meals + drinks), newest first
   const byDay = {};
-  for (const m of state.meals) {
-    const k = dateKey(m.time);
-    (byDay[k] = byDay[k] || []).push(m);
+  for (const m of state.meals) (byDay[dateKey(m.time)] ||= { meals: [], drinks: [] }).meals.push(m);
+  for (const k of Object.keys(state.water)) {
+    if ((state.water[k] || []).length) (byDay[k] ||= { meals: [], drinks: [] }).drinks = state.water[k];
   }
   const days = Object.keys(byDay).sort().reverse();
   $("#historyList").innerHTML = days.length
     ? days.map(k => {
-        const items = byDay[k].sort((a, b) => new Date(a.time) - new Date(b.time)).map(mealItemHTML).join("");
-        const water = (state.water[k] || []).reduce((s, e) => s + e.ml, 0);
-        return `<div class="history-day"><h3>${fmtDate(k)} · 💧 ${fmtWater(water)}</h3><ul class="meal-list">${items}</ul></div>`;
+        const day = byDay[k];
+        const meals = day.meals.sort((a, b) => new Date(a.time) - new Date(b.time)).map(mealItemHTML).join("");
+        const water = day.drinks.reduce((s, e) => s + e.ml, 0);
+        const drinks = day.drinks.slice().sort((a, b) => a.ts - b.ts).map(e => {
+          const type = e.type || "water";
+          return `<li class="meal-item">
+            <div class="meal-top">
+              <span class="meal-desc"><span class="drink-icon">${drinkIcon(type)}</span>${drinkLabel(type)}</span>
+              <span class="meal-meta">${fmtTime(e.ts)} · ${fmtWater(e.ml)}</span>
+            </div></li>`;
+        }).join("");
+        return `<div class="history-day"><h3>${fmtDate(k)} · 💧 ${fmtWater(water)}</h3>
+          ${meals ? `<ul class="meal-list">${meals}</ul>` : ""}
+          ${drinks ? `<ul class="meal-list drinks-list">${drinks}</ul>` : ""}</div>`;
       }).join("")
-    : `<p class="muted">No meals logged yet.</p>`;
+    : `<p class="muted">Nothing logged yet.</p>`;
 }
 
 function renderDailyReview() {
@@ -614,6 +650,7 @@ function renderGoalAdvice() {
 function renderAll() {
   renderFasting();
   renderWater();
+  renderDrinks();
   renderMeals();
   renderDailyReview();
   renderGoalStatus();
@@ -656,7 +693,12 @@ function setupMeals() {
   });
 
   document.addEventListener("click", (e) => {
-    if (e.target.classList.contains("meal-del") && !e.target.classList.contains("weight-del")) {
+    if (e.target.classList.contains("drink-del")) {
+      const li = e.target.closest("li");
+      const ts = Number(li.dataset.ts), date = li.dataset.date;
+      if (state.water[date]) state.water[date] = state.water[date].filter(x => x.ts !== ts);
+      save(); renderAll();
+    } else if (e.target.classList.contains("meal-del") && !e.target.classList.contains("weight-del")) {
       const li = e.target.closest(".meal-item");
       state.meals = state.meals.filter(m => m.id !== li.dataset.id);
       save(); renderAll();
@@ -670,15 +712,22 @@ function setupMeals() {
 }
 
 function setupWater() {
+  // the time applied to any drink logged; defaults to now, reset after each log
+  $("#drinkTime").value = toLocalInputValue(new Date());
+  const drinkWhen = () => {
+    const v = $("#drinkTime").value;
+    return v ? new Date(v) : new Date();
+  };
+  const resetWhen = () => { $("#drinkTime").value = toLocalInputValue(new Date()); };
+
   // quick water buttons
   $$(".water-add").forEach(btn => btn.addEventListener("click", () => {
-    const k = todayKey();
-    (state.water[k] = state.water[k] || []).push({ ml: Number(btn.dataset.ml), ts: Date.now(), type: "water" });
-    save(); renderWater(); renderDailyReview();
+    addHydration(Number(btn.dataset.ml), "water", drinkWhen());
+    resetWhen(); renderAll();
   }));
   $("#waterUndo").addEventListener("click", () => {
     const arr = state.water[todayKey()];
-    if (arr && arr.length) { arr.pop(); save(); renderWater(); renderDailyReview(); }
+    if (arr && arr.length) { arr.pop(); save(); renderAll(); }
   });
 
   // beverage type selector (sizes are filled/relabelled by renderWater)
@@ -686,8 +735,9 @@ function setupWater() {
     .map(([key, b]) => `<option value="${key}">${b.label}</option>`).join("");
 
   $("#drinkLog").addEventListener("click", () => {
-    const res = logBeverage($("#drinkType").value, $("#drinkSize").value);
+    const res = logBeverage($("#drinkType").value, $("#drinkSize").value, drinkWhen());
     if (!res) return;
+    resetWhen();
     const note = $("#drinkNote");
     if (res.hydrating) {
       if (res.note) { note.className = "coach-box good"; note.innerHTML = res.note; note.classList.remove("hidden"); }
