@@ -177,6 +177,31 @@ A = base(); A.updatedAt = 500; A.goal = { weightKg: 85 };
 B = base(); B.updatedAt = 200; B.goal = { weightKg: 90 };
 check("older side does not clobber newer settings", domain.mergeStates(A, B).goal.weightKg === 85);
 
+// --- deletion tombstones survive the merge ---
+A = base(); B = base();
+A.meals = []; A.tombstones = { "meal:m1": 1000 };   // A deleted m1
+B.meals = [{ id: "m1", desc: "ghost" }];             // B still has it
+m = domain.mergeStates(A, B);
+check("tombstoned meal stays deleted after merge", !m.meals.some(x => x.id === "m1"), JSON.stringify(m.meals));
+check("merge keeps the tombstone for other devices", m.tombstones["meal:m1"] === 1000);
+
+A = base(); B = base();
+A.water = {}; A.tombstones = { "water:2026-06-21:5": 1000 };
+B.water = { "2026-06-21": [{ ts: 5, ml: 250, type: "water" }] };
+m = domain.mergeStates(A, B);
+check("tombstoned water entry stays deleted", !(m.water["2026-06-21"] || []).some(e => e.ts === 5));
+
+A = base(); B = base();
+A.weights = []; A.tombstones = { "weight:2026-06-01": 1000 };
+B.weights = [{ date: "2026-06-01", kg: 98, ts: 500 }]; // recorded before deletion
+m = domain.mergeStates(A, B);
+check("weigh-in deleted after it was recorded stays deleted", m.weights.length === 0);
+
+A = base(); A.tombstones = { "weight:2026-06-01": 1000 };
+A.weights = [{ date: "2026-06-01", kg: 95, ts: 2000 }]; // re-logged after the deletion
+m = domain.mergeStates(A, base());
+check("re-logged weigh-in survives an older tombstone", m.weights.some(w => w.date === "2026-06-01" && w.kg === 95));
+
 // --- backup envelope (carries keys + persona) ---
 const bk = domain.buildBackup(
   { meals: [{ id: "x" }], profile: { age: 40 } },

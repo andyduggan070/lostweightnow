@@ -12,7 +12,8 @@ export const defaultState = () => ({
   waterGoalMl: 2000,
   water: {},   // dateKey -> [{ml, ts, type}]
   meals: [],   // {id, desc, time(ISO), portion, flags, tone, message}
-  weights: [], // {date, kg} sorted by date
+  weights: [], // {date, kg, ts} sorted by date
+  tombstones: {}, // deletion markers "type:key" -> ts, so deletes survive sync merges
   updatedAt: 0 // last local change, used to resolve sync conflicts
 });
 

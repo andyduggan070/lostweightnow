@@ -236,30 +236,47 @@ export function expectedWeightKg(onDate) {
 
 /* ---------------- sync merge ---------------- */
 
-// Merge two states without losing entries: union logs by their keys, and take
-// scalar settings from whichever side was edited more recently.
+// Merge two states without losing entries: union logs by their keys, honour
+// deletion tombstones so removals survive, and take scalar settings from
+// whichever side was edited more recently.
 export function mergeStates(a, b) {
   const newer = (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a;
   const out = defaultState();
 
+  // union tombstones, keeping the latest deletion time per key
+  const tombs = {};
+  for (const src of [a.tombstones || {}, b.tombstones || {}]) {
+    for (const k of Object.keys(src)) tombs[k] = Math.max(tombs[k] || 0, src[k]);
+  }
+  out.tombstones = tombs;
+
+  // meals: union by id (ids are never reused, so a tombstone always wins)
   const meals = {};
   for (const m of [...(a.meals || []), ...(b.meals || [])]) meals[m.id] = m;
-  out.meals = Object.values(meals);
+  out.meals = Object.values(meals).filter(m => !tombs["meal:" + m.id]);
 
+  // weights: union by date; a tombstone only suppresses an entry recorded
+  // before the deletion, so re-logging a weigh-in for that date survives
   const weights = {};
   for (const w of [...(a.weights || []), ...(b.weights || [])]) {
     if (!weights[w.date] || newer === b) weights[w.date] = w;
   }
-  out.weights = Object.values(weights).sort((x, y) => x.date.localeCompare(y.date));
+  out.weights = Object.values(weights)
+    .filter(w => !(tombs["weight:" + w.date] && tombs["weight:" + w.date] >= (w.ts || 0)))
+    .sort((x, y) => x.date.localeCompare(y.date));
 
+  // water: union per day by ts, drop tombstoned entries
   out.water = {};
   for (const src of [a.water || {}, b.water || {}]) {
     for (const k of Object.keys(src)) {
       const byTs = {};
       for (const e of [...(out.water[k] || []), ...src[k]]) byTs[e.ts] = e;
-      out.water[k] = Object.values(byTs).sort((x, y) => x.ts - y.ts);
+      out.water[k] = Object.values(byTs)
+        .filter(e => !tombs["water:" + k + ":" + e.ts])
+        .sort((x, y) => x.ts - y.ts);
     }
   }
+  for (const k of Object.keys(out.water)) if (!out.water[k].length) delete out.water[k];
 
   out.profile = newer.profile;
   out.goal = newer.goal;
@@ -267,6 +284,12 @@ export function mergeStates(a, b) {
   out.waterGoalMl = newer.waterGoalMl;
   out.updatedAt = Math.max(a.updatedAt || 0, b.updatedAt || 0);
   return out;
+}
+
+// Record that something was deleted, so the deletion propagates through sync
+// merges instead of being resurrected from the remote copy.
+export function tombstone(key) {
+  (state.tombstones ||= {})[key] = Date.now();
 }
 
 /* ---------------- AI coach (Google Gemini) ---------------- */
