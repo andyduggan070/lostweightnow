@@ -1,5 +1,8 @@
-/* LostWeightNow service worker — caches the app shell so it works offline. */
-const CACHE = "lwn-v1";
+/* LostWeightNow service worker.
+   Network-first for the app shell (HTML/JS/CSS) so updates are picked up as
+   soon as you're online; cache-first for icons/manifest; cache is the offline
+   fallback for everything. Bump CACHE on any change to retire old caches. */
+const CACHE = "lwn-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -23,15 +26,40 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+// Treat navigations and our own HTML/JS/CSS as "fresh-preferred".
+function isAppShell(request, url) {
+  return request.mode === "navigate" || /\.(html|js|css)$/.test(url.pathname);
+}
+
 self.addEventListener("fetch", (e) => {
-  if (e.request.method !== "GET") return;
+  const { request } = e;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return; // let cross-origin pass through
+
+  if (isAppShell(request, url)) {
+    // network-first: try the live version, fall back to cache when offline
+    e.respondWith(
+      fetch(request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(request, copy));
+          return res;
+        })
+        .catch(() => caches.match(request, { ignoreSearch: true })
+          .then((hit) => hit || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  // everything else (icons, manifest): cache-first, then network
   e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then(
+    caches.match(request, { ignoreSearch: true }).then(
       (hit) =>
         hit ||
-        fetch(e.request).then((res) => {
+        fetch(request).then((res) => {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          caches.open(CACHE).then((c) => c.put(request, copy));
           return res;
         })
     )
