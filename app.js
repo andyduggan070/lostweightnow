@@ -272,8 +272,9 @@ function logBeverage(typeKey, sizeKey, when = new Date()) {
   }
 
   const desc = `${bev.desc} — ${fmtWater(size.ml)}`;
-  const analysis = addMeal(desc, SIZE_TO_PORTION[size.key] || "medium", when);
-  return { hydrating: false, analysis };
+  const portion = SIZE_TO_PORTION[size.key] || "medium";
+  const analysis = addMeal(desc, portion, when);
+  return { hydrating: false, analysis, meal: { desc, portion, time: when.toISOString() } };
 }
 
 /* ---------------- rendering: fasting ---------------- */
@@ -686,10 +687,7 @@ function setupMeals() {
     const portion = $("#mealPortion").value;
     const analysis = addMeal(desc, portion, when);
 
-    const box = $("#coachFeedback");
-    box.className = "coach-box " + (analysis.tone === "good" ? "good" : analysis.tone === "warn" ? "warn" : "");
-    box.innerHTML = `<div class="coach-title">Coach says</div>${escapeHTML(analysis.message)}`;
-    box.classList.remove("hidden");
+    coach($("#coachFeedback"), { desc, portion, time: when.toISOString() }, analysis.message, analysis.tone);
 
     $("#mealDesc").value = "";
     $("#mealPortion").value = "medium";
@@ -748,10 +746,7 @@ function setupWater() {
       if (res.note) { note.className = "coach-box good"; note.innerHTML = res.note; note.classList.remove("hidden"); }
       else note.classList.add("hidden");
     } else {
-      const a = res.analysis;
-      note.className = "coach-box " + (a.tone === "good" ? "good" : a.tone === "warn" ? "warn" : "");
-      note.innerHTML = `<div class="coach-title">Coach says</div>${escapeHTML(a.message)} <em>Added to your meal log.</em>`;
-      note.classList.remove("hidden");
+      coach(note, res.meal, res.analysis.message + " Added to your meal log.", res.analysis.tone);
     }
     renderAll();
   });
@@ -832,7 +827,7 @@ function setupSettings() {
   ["#profileForm", "#goalForm", "#fastingForm"].forEach(s => $(s).addEventListener("submit", e => e.preventDefault()));
 
   $("#exportBtn").addEventListener("click", () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(buildBackup(state, syncCfg, aiCfg), null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `lostweightnow-backup-${todayKey()}.json`;
@@ -844,12 +839,19 @@ function setupSettings() {
     const file = $("#importFile").files[0];
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
-      if (!data.meals || !data.profile) throw new Error("bad file");
+      const { data, clientId, ai } = parseBackup(JSON.parse(await file.text()));
       state = Object.assign(defaultState(), data);
-      save(); renderAll();
+      if (typeof clientId === "string") { syncCfg.clientId = clientId; saveSyncCfg(); }
+      if (ai) {
+        aiCfg = Object.assign(aiCfg, {
+          enabled: !!ai.enabled, apiKey: ai.apiKey || "",
+          model: ai.model || DEFAULT_MODEL, systemPrompt: ai.systemPrompt || DEFAULT_PERSONA
+        });
+        saveAiCfg();
+      }
+      save(); renderAll(); renderAiControls(); renderDriveControls();
       alert("Backup imported.");
-    } catch { alert("That file doesn't look like a LostWeightNow backup."); }
+    } catch (err) { alert("That file doesn't look like a LostWeightNow backup."); }
     $("#importFile").value = "";
   });
   $("#resetBtn").addEventListener("click", () => {
@@ -1072,6 +1074,147 @@ function setupSync() {
   });
 }
 
+/* ---------------- AI coach (Google Gemini) + backups ---------------- */
+
+const AI_STORE = "lwn-ai-v1";
+const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_PERSONA =
+  "In your role as an honest, supportive dietary expert and coach, help the user lose weight " +
+  "through intermittent fasting and better food choices. Give concise feedback (2–4 sentences): " +
+  "note what's good, be direct about poor choices and oversized portions, take meal timing relative " +
+  "to their fasting window into account, and finish with one practical, specific tip. Be encouraging " +
+  "but truthful — never preachy, never invent calorie numbers you can't know.";
+
+// Pure helpers (unit-tested): assemble/parse the export bundle that carries
+// the data plus the Drive Client ID, Gemini key and coach persona.
+function buildBackup(st, sc, ac) {
+  return {
+    app: "lostweightnow",
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    data: st,
+    sync: { clientId: (sc && sc.clientId) || "" },
+    ai: {
+      enabled: !!(ac && ac.enabled),
+      apiKey: (ac && ac.apiKey) || "",
+      model: (ac && ac.model) || DEFAULT_MODEL,
+      systemPrompt: (ac && ac.systemPrompt) || DEFAULT_PERSONA
+    }
+  };
+}
+function parseBackup(parsed) {
+  if (parsed && parsed.app === "lostweightnow" && parsed.data) {
+    return { data: parsed.data, clientId: parsed.sync && parsed.sync.clientId, ai: parsed.ai };
+  }
+  if (parsed && parsed.meals && parsed.profile) return { data: parsed }; // legacy raw-state backup
+  throw new Error("not a LostWeightNow backup");
+}
+/* ---- end pure backup helpers ---- */
+
+let aiCfg = loadAiCfg();
+function loadAiCfg() {
+  try { return Object.assign({ enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA },
+    JSON.parse(localStorage.getItem(AI_STORE) || "{}")); }
+  catch { return { enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA }; }
+}
+function saveAiCfg() { localStorage.setItem(AI_STORE, JSON.stringify(aiCfg)); }
+
+const aiReady = () => aiCfg.enabled && aiCfg.apiKey && navigator.onLine;
+
+// Build the user-message context for one meal/drink.
+function mealContextText(m) {
+  const when = new Date(m.time);
+  const win = windowInfo(when);
+  const lines = [
+    `Item: ${m.desc}`,
+    `Portion: ${m.portion}`,
+    `Time eaten: ${when.toLocaleString()}`,
+    win.inWindow
+      ? `This is inside the user's eating window (${fmtHM(win.start)}–${fmtHM(win.end)}).`
+      : `This is OUTSIDE the user's intermittent-fasting window (${fmtHM(win.start)}–${fmtHM(win.end)}) — they should be fasting now.`
+  ];
+  const g = state.goal, last = latestWeight();
+  if (g.weightKg && g.date) {
+    lines.push(`Goal: reach ${fmtWeight(g.weightKg)} by ${g.date}${last ? `, currently ${fmtWeight(last.kg)}` : ""}.`);
+  }
+  if (state.profile.age) lines.push(`User: age ${state.profile.age}${state.profile.sex ? ", " + state.profile.sex : ""}.`);
+  const mealsToday = state.meals.filter(mm => dateKey(mm.time) === dateKey(when)).length;
+  lines.push(`This is item #${mealsToday} logged today.`);
+  return lines.join("\n");
+}
+
+async function geminiGenerate(userText) {
+  if (!aiCfg.apiKey) throw new Error("no API key");
+  const model = aiCfg.model || DEFAULT_MODEL;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(aiCfg.apiKey)}`;
+  const body = {
+    systemInstruction: { parts: [{ text: aiCfg.systemPrompt || DEFAULT_PERSONA }] },
+    contents: [{ role: "user", parts: [{ text: userText }] }],
+    generationConfig: { temperature: 0.7, maxOutputTokens: 400 }
+  };
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) {
+    let detail = "HTTP " + res.status;
+    try { const e = await res.json(); detail = (e.error && e.error.message) || detail; } catch {}
+    throw new Error(detail);
+  }
+  const data = await res.json();
+  const text = (((data.candidates || [])[0] || {}).content || {}).parts;
+  const out = (text || []).map(p => p.text || "").join("").trim();
+  if (!out) throw new Error("empty response");
+  return out;
+}
+
+function renderCoach(box, tone, title, html) {
+  box.className = "coach-box " + (tone === "good" ? "good" : tone === "warn" ? "warn" : "");
+  box.innerHTML = `<div class="coach-title">${title}</div>${html}`;
+  box.classList.remove("hidden");
+}
+
+// Show the rule-based coaching immediately; upgrade to Gemini if configured.
+async function coach(box, meal, fallbackText, tone) {
+  renderCoach(box, tone, "Coach says", escapeHTML(fallbackText));
+  if (!aiReady()) return;
+  renderCoach(box, tone, "Coach (AI)", "<em>Thinking…</em>");
+  try {
+    const text = await geminiGenerate(mealContextText(meal));
+    renderCoach(box, tone, "Coach (AI)", escapeHTML(text));
+  } catch (err) {
+    renderCoach(box, tone, "Coach says",
+      `${escapeHTML(fallbackText)} <span class="muted small">(AI unavailable: ${escapeHTML(err.message)})</span>`);
+  }
+}
+
+function renderAiControls() {
+  if (!$("#aiKey")) return;
+  $("#aiEnabled").checked = !!aiCfg.enabled;
+  const set = (sel, val) => { const el = $(sel); if (el && document.activeElement !== el) el.value = val; };
+  set("#aiKey", aiCfg.apiKey || "");
+  set("#aiModel", aiCfg.model || DEFAULT_MODEL);
+  set("#aiPrompt", aiCfg.systemPrompt || DEFAULT_PERSONA);
+}
+
+function setupAI() {
+  renderAiControls();
+  $("#aiEnabled").addEventListener("change", () => { aiCfg.enabled = $("#aiEnabled").checked; saveAiCfg(); });
+  $("#aiKey").addEventListener("change", () => { aiCfg.apiKey = $("#aiKey").value.trim(); saveAiCfg(); });
+  $("#aiModel").addEventListener("change", () => { aiCfg.model = $("#aiModel").value.trim() || DEFAULT_MODEL; saveAiCfg(); });
+  $("#aiPrompt").addEventListener("change", () => { aiCfg.systemPrompt = $("#aiPrompt").value.trim() || DEFAULT_PERSONA; saveAiCfg(); });
+  $("#aiResetPrompt").addEventListener("click", () => { aiCfg.systemPrompt = DEFAULT_PERSONA; saveAiCfg(); $("#aiPrompt").value = DEFAULT_PERSONA; });
+  $("#aiTestBtn").addEventListener("click", async () => {
+    aiCfg.apiKey = $("#aiKey").value.trim();
+    aiCfg.model = $("#aiModel").value.trim() || DEFAULT_MODEL;
+    saveAiCfg();
+    const el = $("#aiStatus");
+    if (!aiCfg.apiKey) { el.textContent = "Enter your Gemini API key first."; return; }
+    el.textContent = "Testing…";
+    try {
+      const txt = await geminiGenerate("Reply in one short sentence confirming you're ready to act as the user's dietary coach.");
+      el.textContent = "✓ Connected: " + txt;
+    } catch (err) { el.textContent = "Failed: " + err.message; }
+  });
+}
+
 /* ---------------- boot ---------------- */
 
 setupTabs();
@@ -1080,6 +1223,7 @@ setupWater();
 setupWeight();
 setupSettings();
 setupSync();
+setupAI();
 renderAll();
 setInterval(renderFasting, 30 * 1000); // keep the fasting clock live
 

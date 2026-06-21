@@ -35,6 +35,33 @@ installable web app (PWA). All data stays privately on your device.
   only ever see the files it creates — never the rest of your Drive, and never
   your password.
 
+- **AI coach (Google Gemini, optional)** — connect a free Gemini API key to
+  replace the built-in keyword coach with real AI dietary coaching. You can
+  fully customise the coach's persona/instructions (e.g. *"In your role as a
+  dietary expert and coach…"*). The built-in coach is the offline fallback.
+
+## AI coach setup (one-time)
+
+1. Go to [Google AI Studio](https://aistudio.google.com/) → **Get API key** →
+   create a key (free tier; no billing required).
+2. In the app: **Settings → AI Coach (Google Gemini)**, tick **Use Gemini as my
+   coach**, paste the key, optionally edit the **Model** (default
+   `gemini-2.0-flash`) and the **persona/instructions**, then **Test
+   connection**.
+
+The key is stored only in your browser (and in your exported backup file — see
+below); it is never put into the app's public code. For extra safety you can
+restrict the key in Google Cloud to the *Generative Language API* and to your
+site's address. Meal text and context are sent to Google when AI coaching is on.
+
+## Backups & moving keys between devices
+
+**Settings → Your Data → Export backup** saves a single JSON file containing
+your data **plus** your Drive Client ID, Gemini API key and coach persona. Save
+it via the iOS share sheet into **Files → iCloud Drive**, then **Import backup**
+on your other device to restore everything (keys included). Keep this file
+private, as it contains your keys.
+
 ## Cloud sync setup (one-time)
 
 To enable Google Drive sync you create a free Google OAuth Client ID and paste

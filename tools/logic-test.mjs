@@ -13,7 +13,8 @@ const slice = (from, to) => {
 const logic =
   slice("const STORE_KEY", "/* ---------------- rendering: fasting") +
   src.slice(src.indexOf("function expectedWeightKg"), src.indexOf("function renderGoalStatus")) +
-  slice("function mergeStates", "function loadGis");
+  slice("function mergeStates", "function loadGis") +
+  slice("const AI_STORE", "/* ---- end pure backup helpers ---- */");
 
 global.localStorage = { getItem: () => null, setItem: () => {} };
 global.document = { querySelector: () => null, querySelectorAll: () => [] };
@@ -21,7 +22,7 @@ global.document = { querySelector: () => null, querySelectorAll: () => [] };
 const api = new Function(
   "var scheduleCloudPush = () => {};\n" + // defined elsewhere in the real app; stubbed for pure-logic tests
   logic +
-  "\nreturn { state, windowInfo, analyzeMeal, nextMealAdvice, expectedWeightKg, fmtWater, kgToDisplay, displayToKg, dateKey, logBeverage, BEVERAGES, mergeStates };"
+  "\nreturn { state, windowInfo, analyzeMeal, nextMealAdvice, expectedWeightKg, fmtWater, kgToDisplay, displayToKg, dateKey, logBeverage, BEVERAGES, mergeStates, buildBackup, parseBackup, DEFAULT_MODEL, DEFAULT_PERSONA };"
 )();
 
 let failures = 0;
@@ -181,6 +182,30 @@ A = base(); A.updatedAt = 500; A.goal = { weightKg: 85 };
 B = base(); B.updatedAt = 200; B.goal = { weightKg: 90 };
 m = api.mergeStates(A, B);
 check("older side does not clobber newer settings", m.goal.weightKg === 85);
+
+// --- backup envelope (carries keys + persona) ---
+const bk = api.buildBackup(
+  { meals: [{ id: "x" }], profile: { age: 40 } },
+  { clientId: "abc.apps.googleusercontent.com" },
+  { enabled: true, apiKey: "AIzaTEST", model: "gemini-2.0-flash", systemPrompt: "Be a coach." }
+);
+check("backup tags the app + version", bk.app === "lostweightnow" && bk.version === 2);
+check("backup carries the Drive client id", bk.sync.clientId === "abc.apps.googleusercontent.com");
+check("backup carries the Gemini api key", bk.ai.apiKey === "AIzaTEST");
+check("backup carries the custom persona", bk.ai.systemPrompt === "Be a coach.");
+check("backup nests the data", bk.data.meals[0].id === "x");
+
+const round = api.parseBackup(bk);
+check("parseBackup returns data + clientId + ai", round.data.profile.age === 40 && round.clientId === "abc.apps.googleusercontent.com" && round.ai.apiKey === "AIzaTEST");
+
+const legacy = api.parseBackup({ meals: [{ id: "y" }], profile: { age: 50 } });
+check("parseBackup accepts legacy raw-state files", legacy.data.profile.age === 50 && legacy.clientId === undefined);
+
+let threw = false;
+try { api.parseBackup({ random: "junk" }); } catch { threw = true; }
+check("parseBackup rejects unknown files", threw);
+
+check("default persona is non-empty", typeof api.DEFAULT_PERSONA === "string" && api.DEFAULT_PERSONA.length > 20);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll checks passed");
 process.exit(failures ? 1 : 0);
