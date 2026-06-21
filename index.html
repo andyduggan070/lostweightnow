@@ -245,7 +245,13 @@
           <input type="password" id="aiKey" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false">
         </label>
         <label>Model
-          <input type="text" id="aiModel" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <input type="text" id="aiModel" list="aiModels" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <datalist id="aiModels">
+            <option value="gemini-3.1-flash-lite"></option>
+            <option value="gemini-3-flash"></option>
+            <option value="gemini-3.5-flash"></option>
+            <option value="gemini-3.1-pro"></option>
+          </datalist>
         </label>
         <label>Coach persona &amp; instructions
           <textarea id="aiPrompt" rows="5" placeholder="In your role as a dietary expert and coach…"></textarea>

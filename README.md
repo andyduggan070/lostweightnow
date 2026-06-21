@@ -46,7 +46,7 @@ installable web app (PWA). All data stays privately on your device.
    create a key (free tier; no billing required).
 2. In the app: **Settings → AI Coach (Google Gemini)**, tick **Use Gemini as my
    coach**, paste the key, optionally edit the **Model** (default
-   `gemini-2.0-flash`) and the **persona/instructions**, then **Test
+   `gemini-3.1-flash-lite`) and the **persona/instructions**, then **Test
    connection**.
 
 The key is stored only in your browser (and in your exported backup file — see

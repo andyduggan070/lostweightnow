@@ -264,7 +264,12 @@ export function mergeStates(a, b) {
 /* ---------------- AI coach (Google Gemini) ---------------- */
 
 const AI_STORE = "lwn-ai-v1";
-export const DEFAULT_MODEL = "gemini-2.0-flash";
+export const DEFAULT_MODEL = "gemini-3.1-flash-lite";
+// Models Google has retired — auto-migrate stored configs off these.
+const DEAD_MODELS = new Set([
+  "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash-001",
+  "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-pro"
+]);
 export const DEFAULT_PERSONA =
   "In your role as an honest, supportive dietary expert and coach, help the user lose weight " +
   "through intermittent fasting and better food choices. Give concise feedback (2–4 sentences): " +
@@ -274,9 +279,12 @@ export const DEFAULT_PERSONA =
 
 export let aiCfg = loadAiCfg();
 function loadAiCfg() {
-  try { return Object.assign({ enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA },
+  let cfg;
+  try { cfg = Object.assign({ enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA },
     JSON.parse(localStorage.getItem(AI_STORE) || "{}")); }
-  catch { return { enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA }; }
+  catch { cfg = { enabled: false, apiKey: "", model: DEFAULT_MODEL, systemPrompt: DEFAULT_PERSONA }; }
+  if (!cfg.model || DEAD_MODELS.has(cfg.model)) cfg.model = DEFAULT_MODEL;
+  return cfg;
 }
 export function saveAiCfg() { localStorage.setItem(AI_STORE, JSON.stringify(aiCfg)); }
 export const aiReady = () => aiCfg.enabled && aiCfg.apiKey && navigator.onLine;
