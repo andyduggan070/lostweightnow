@@ -4,7 +4,7 @@
 import { $, $$, todayKey, toLocalInputValue, escapeHTML } from "./util.js";
 import { state, save, replaceState, defaultState, latestWeight } from "./store.js";
 import {
-  addMeal, addHydration, logBeverage, setMealKj, BEVERAGES,
+  addMeal, addHydration, logBeverage, setMealKj, tombstone, BEVERAGES,
   displayToKg, displayToMl,
   aiCfg, saveAiCfg, aiReady, geminiGenerate, geminiCoach, mealContextText,
   DEFAULT_MODEL, DEFAULT_PERSONA, buildBackup, parseBackup
@@ -82,15 +82,18 @@ function setupMeals() {
       const li = e.target.closest("li");
       const ts = Number(li.dataset.ts), date = li.dataset.date;
       if (state.water[date]) state.water[date] = state.water[date].filter(x => x.ts !== ts);
+      tombstone(`water:${date}:${ts}`);
       save(); renderAll();
     } else if (e.target.classList.contains("meal-del") && !e.target.classList.contains("weight-del")) {
       const li = e.target.closest(".meal-item");
       state.meals = state.meals.filter(m => m.id !== li.dataset.id);
+      tombstone(`meal:${li.dataset.id}`);
       save(); renderAll();
     }
     if (e.target.classList.contains("weight-del")) {
       const li = e.target.closest("li");
       state.weights = state.weights.filter(w => w.date !== li.dataset.date);
+      tombstone(`weight:${li.dataset.date}`);
       save(); renderAll();
     }
   });
@@ -112,7 +115,11 @@ function setupWater() {
   }));
   $("#waterUndo").addEventListener("click", () => {
     const arr = state.water[todayKey()];
-    if (arr && arr.length) { arr.pop(); save(); renderAll(); }
+    if (arr && arr.length) {
+      const removed = arr.pop();
+      if (removed) tombstone(`water:${todayKey()}:${removed.ts}`);
+      save(); renderAll();
+    }
   });
 
   // beverage type selector (sizes are filled/relabelled by renderWater)
@@ -149,7 +156,7 @@ function setupWeight() {
     if (!(v > 0) || !date) return;
     const kg = displayToKg(v);
     state.weights = state.weights.filter(w => w.date !== date);
-    state.weights.push({ date, kg });
+    state.weights.push({ date, kg, ts: Date.now() });
     state.weights.sort((a, b) => a.date.localeCompare(b.date));
     if (state.profile.startWeightKg == null) state.profile.startWeightKg = kg;
     // anchor the goal trajectory at the first weigh-in if not set
