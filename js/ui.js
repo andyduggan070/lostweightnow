@@ -5,6 +5,7 @@ import { $, $$, todayKey, toLocalInputValue, escapeHTML } from "./util.js";
 import { state, save, replaceState, defaultState, latestWeight } from "./store.js";
 import {
   addMeal, addHydration, logBeverage, setMealKj, tombstone, BEVERAGES,
+  ACTIVITIES, addActivity,
   displayToKg, displayToMl,
   aiCfg, saveAiCfg, aiReady, geminiGenerate, geminiCoach, mealContextText,
   DEFAULT_MODEL, DEFAULT_PERSONA, buildBackup, parseBackup
@@ -83,6 +84,11 @@ function setupMeals() {
       const ts = Number(li.dataset.ts), date = li.dataset.date;
       if (state.water[date]) state.water[date] = state.water[date].filter(x => x.ts !== ts);
       tombstone(`water:${date}:${ts}`);
+      save(); renderAll();
+    } else if (e.target.classList.contains("activity-del")) {
+      const li = e.target.closest("li");
+      state.activities = state.activities.filter(x => x.id !== li.dataset.id);
+      tombstone(`activity:${li.dataset.id}`);
       save(); renderAll();
     } else if (e.target.classList.contains("meal-del") && !e.target.classList.contains("weight-del")) {
       const li = e.target.closest(".meal-item");
@@ -166,6 +172,44 @@ function setupWeight() {
     }
     save();
     $("#weightInput").value = "";
+    renderAll();
+  });
+}
+
+function setupActivity() {
+  const typeSel = $("#actType");
+  typeSel.innerHTML = Object.entries(ACTIVITIES)
+    .map(([k, a]) => `<option value="${k}">${a.icon} ${a.label}</option>`).join("");
+
+  const resetTimes = () => {
+    const now = new Date();
+    $("#actStart").value = toLocalInputValue(new Date(now.getTime() - 30 * 60000));
+    $("#actEnd").value = toLocalInputValue(now);
+  };
+  resetTimes();
+
+  const syncDistance = () => {
+    const cfg = ACTIVITIES[typeSel.value];
+    const lbl = $("#actDistanceLabel");
+    if (cfg && cfg.distance) { lbl.style.display = ""; $("#actDistanceUnit").textContent = cfg.distance; }
+    else lbl.style.display = "none";
+  };
+  typeSel.addEventListener("change", syncDistance);
+  syncDistance();
+
+  $("#activityForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const type = typeSel.value;
+    const startV = $("#actStart").value, endV = $("#actEnd").value;
+    if (!startV || !endV) return;
+    let start = new Date(startV), end = new Date(endV);
+    if (end < start) [start, end] = [end, start]; // tolerate swapped times
+    const a = { type, start: start.toISOString(), end: end.toISOString(), intensity: $("#actIntensity").value };
+    const dist = parseFloat($("#actDistance").value);
+    if (ACTIVITIES[type].distance && dist > 0) a.distance = dist;
+    addActivity(a);
+    resetTimes();
+    $("#actDistance").value = "";
     renderAll();
   });
 }
@@ -289,6 +333,7 @@ setupTabs();
 setupMeals();
 setupWater();
 setupWeight();
+setupActivity();
 setupSettings();
 setupSync();
 setupAI();

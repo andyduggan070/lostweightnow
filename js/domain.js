@@ -221,6 +221,28 @@ export function waterToday() {
   return (state.water[todayKey()] || []).reduce((s, e) => s + e.ml, 0);
 }
 
+/* ---------------- activities ---------------- */
+
+// Each type lists its extra distance field (if any); all record an intensity.
+export const ACTIVITIES = {
+  walking:  { label: "Walking",  icon: "🚶", distance: "km" },
+  riding:   { label: "Riding",   icon: "🚴", distance: "km" },
+  gym:      { label: "Gym",      icon: "🏋️" },
+  swimming: { label: "Swimming", icon: "🏊", distance: "m" },
+  sport:    { label: "Sport",    icon: "⚽" }
+};
+
+export function activityMinutes(a) {
+  return Math.max(0, Math.round((new Date(a.end) - new Date(a.start)) / 60000));
+}
+
+export function addActivity(a) {
+  const act = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...a };
+  state.activities.push(act);
+  save();
+  return act;
+}
+
 /* ---------------- weight maths ---------------- */
 
 export function expectedWeightKg(onDate) {
@@ -254,6 +276,11 @@ export function mergeStates(a, b) {
   const meals = {};
   for (const m of [...(a.meals || []), ...(b.meals || [])]) meals[m.id] = m;
   out.meals = Object.values(meals).filter(m => !tombs["meal:" + m.id]);
+
+  // activities: union by id, drop tombstoned
+  const activities = {};
+  for (const x of [...(a.activities || []), ...(b.activities || [])]) activities[x.id] = x;
+  out.activities = Object.values(activities).filter(x => !tombs["activity:" + x.id]);
 
   // weights: union by date; a tombstone only suppresses an entry recorded
   // before the deletion, so re-logging a weigh-in for that date survives
