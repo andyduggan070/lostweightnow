@@ -140,6 +140,22 @@ check("setMealKj stores a rounded kJ on the meal", state.meals.find(x => x.id ==
 domain.setMealKj(stored.id, 0);
 check("setMealKj ignores non-positive estimates", state.meals.find(x => x.id === stored.id).kj === 1235);
 
+// --- activities ---
+state.activities = [];
+const act = domain.addActivity({ type: "walking", start: "2026-06-21T08:00:00.000Z", end: "2026-06-21T08:45:00.000Z", distance: 4.2, intensity: "moderate" });
+check("addActivity returns a record with an id", act && typeof act.id === "string");
+check("addActivity stores it in state", state.activities.length === 1 && state.activities[0].type === "walking");
+check("activityMinutes computes duration", domain.activityMinutes(act) === 45, `got ${domain.activityMinutes(act)}`);
+check("activity types include all five", ["walking","riding","gym","swimming","sport"].every(k => domain.ACTIVITIES[k]));
+check("swimming records metres, gym records no distance", domain.ACTIVITIES.swimming.distance === "m" && !domain.ACTIVITIES.gym.distance);
+
+// kJ burnt: MET(walking moderate 3.5) × 80kg × 0.75h × 4.184 ≈ 879
+state.weights = [{ date: "2026-01-01", kg: 80, ts: 1 }];
+const burnt = domain.estimateActivityKj({ type: "walking", intensity: "moderate", start: "2026-06-21T08:00:00Z", end: "2026-06-21T08:45:00Z" });
+check("activity kJ-burnt matches the MET formula", Math.abs(burnt - 879) <= 2, `got ${burnt}`);
+const a3 = domain.addActivity({ type: "riding", intensity: "vigorous", start: "2026-06-21T06:00:00Z", end: "2026-06-21T07:00:00Z" });
+check("addActivity stores a kJ-burnt estimate", a3.kj > 0, `got ${a3.kj}`);
+
 // --- cloud-sync merge ---
 const base = () => ({ profile: { weightUnit: "kg" }, goal: {}, fasting: { start: "12:00", end: "20:00" }, waterGoalMl: 2000, water: {}, meals: [], weights: [], updatedAt: 0 });
 
@@ -176,6 +192,15 @@ check("merge takes scalar settings from the newer side", m.waterGoalMl === 3000 
 A = base(); A.updatedAt = 500; A.goal = { weightKg: 85 };
 B = base(); B.updatedAt = 200; B.goal = { weightKg: 90 };
 check("older side does not clobber newer settings", domain.mergeStates(A, B).goal.weightKg === 85);
+
+A = base(); B = base();
+A.activities = [{ id: "x1", type: "gym" }];
+B.activities = [{ id: "x2", type: "riding" }];
+check("merge unions activities from both devices", domain.mergeStates(A, B).activities.length === 2);
+A = base(); B = base();
+A.activities = []; A.tombstones = { "activity:x1": 1000 };
+B.activities = [{ id: "x1", type: "gym" }];
+check("tombstoned activity stays deleted", !domain.mergeStates(A, B).activities.some(x => x.id === "x1"));
 
 // --- deletion tombstones survive the merge ---
 A = base(); B = base();

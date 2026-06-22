@@ -221,6 +221,46 @@ export function waterToday() {
   return (state.water[todayKey()] || []).reduce((s, e) => s + e.ml, 0);
 }
 
+/* ---------------- activities ---------------- */
+
+// Each type lists its extra distance field (if any); all record an intensity.
+export const ACTIVITIES = {
+  walking:  { label: "Walking",  icon: "🚶", distance: "km" },
+  riding:   { label: "Riding",   icon: "🚴", distance: "km" },
+  gym:      { label: "Gym",      icon: "🏋️" },
+  swimming: { label: "Swimming", icon: "🏊", distance: "m" },
+  sport:    { label: "Sport",    icon: "⚽" }
+};
+
+export function activityMinutes(a) {
+  return Math.max(0, Math.round((new Date(a.end) - new Date(a.start)) / 60000));
+}
+
+// Rough energy burnt via MET (metabolic equivalent) × body weight × duration.
+// MET values are standard approximations per activity and intensity.
+const MET = {
+  walking:  { light: 2.8, moderate: 3.5, vigorous: 5.0 },
+  riding:   { light: 4.0, moderate: 6.8, vigorous: 10.0 },
+  gym:      { light: 3.5, moderate: 5.0, vigorous: 6.0 },
+  swimming: { light: 4.5, moderate: 7.0, vigorous: 9.8 },
+  sport:    { light: 4.0, moderate: 7.0, vigorous: 9.0 }
+};
+export function estimateActivityKj(a) {
+  const met = (MET[a.type] && MET[a.type][a.intensity]) || 4;
+  const last = latestWeight();
+  const kg = (last && last.kg) || state.profile.startWeightKg || 75;
+  const kcal = met * kg * (activityMinutes(a) / 60);   // kcal = MET·kg·hours
+  return Math.round(kcal * 4.184);                      // kcal -> kJ
+}
+
+export function addActivity(a) {
+  const act = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...a };
+  act.kj = estimateActivityKj(act);
+  state.activities.push(act);
+  save();
+  return act;
+}
+
 /* ---------------- weight maths ---------------- */
 
 export function expectedWeightKg(onDate) {
@@ -254,6 +294,11 @@ export function mergeStates(a, b) {
   const meals = {};
   for (const m of [...(a.meals || []), ...(b.meals || [])]) meals[m.id] = m;
   out.meals = Object.values(meals).filter(m => !tombs["meal:" + m.id]);
+
+  // activities: union by id, drop tombstoned
+  const activities = {};
+  for (const x of [...(a.activities || []), ...(b.activities || [])]) activities[x.id] = x;
+  out.activities = Object.values(activities).filter(x => !tombs["activity:" + x.id]);
 
   // weights: union by date; a tombstone only suppresses an entry recorded
   // before the deletion, so re-logging a weigh-in for that date survives

@@ -5,7 +5,8 @@ import { state, latestWeight } from "./store.js";
 import {
   kgToDisplay, mlToDisplay, fmtWeight, fmtWater,
   windowInfo, waterToday, expectedWeightKg,
-  DRINK_SIZES, drinkLabel, drinkIcon
+  DRINK_SIZES, drinkLabel, drinkIcon,
+  ACTIVITIES, activityMinutes
 } from "./domain.js";
 
 function renderFasting() {
@@ -302,6 +303,39 @@ function renderWeighReminder() {
   } else el.classList.add("hidden");
 }
 
+function activityItemHTML(a) {
+  const cfg = ACTIVITIES[a.type] || { label: a.type, icon: "🏃" };
+  const dist = cfg.distance && a.distance ? ` · ${a.distance} ${cfg.distance}` : "";
+  const intensity = a.intensity ? ` · ${a.intensity}` : "";
+  const kj = a.kj ? ` · 🔥 ${a.kj} kJ` : "";
+  return `<li class="meal-item" data-id="${a.id}">
+    <div class="meal-top">
+      <span class="meal-desc"><span class="drink-icon">${cfg.icon}</span>${cfg.label}</span>
+      <span class="meal-meta">${fmtTime(a.start)}–${fmtTime(a.end)}
+        <button class="meal-del activity-del" title="Delete" aria-label="Delete activity">✕</button></span>
+    </div>
+    <div class="meal-flags muted small">${fmtDuration(activityMinutes(a))}${dist}${intensity}${kj}</div>
+  </li>`;
+}
+
+function renderActivities() {
+  const acts = state.activities || [];
+  if (!acts.length) {
+    $("#activityList").innerHTML = `<p class="muted">No activity logged yet. Record a walk, ride, gym session, swim or sport above.</p>`;
+    return;
+  }
+  const byDay = {};
+  for (const a of acts) (byDay[dateKey(a.start)] ||= []).push(a);
+  const days = Object.keys(byDay).sort().reverse();
+  $("#activityList").innerHTML = days.map(k => {
+    const items = byDay[k].sort((x, y) => new Date(x.start) - new Date(y.start)).map(activityItemHTML).join("");
+    const mins = byDay[k].reduce((s, a) => s + activityMinutes(a), 0);
+    const kj = byDay[k].reduce((s, a) => s + (a.kj || 0), 0);
+    const kjHead = kj > 0 ? ` · 🔥 ${kj} kJ` : "";
+    return `<div class="history-day"><h3>${fmtDate(k)} · ⏱ ${fmtDuration(mins)}${kjHead}</h3><ul class="meal-list">${items}</ul></div>`;
+  }).join("");
+}
+
 function renderProfileStats() {
   const p = state.profile;
   const last = latestWeight();
@@ -364,6 +398,7 @@ export function renderAll() {
   renderWeightChart();
   renderWeightList();
   renderWeighReminder();
+  renderActivities();
   renderSettings();
 }
 

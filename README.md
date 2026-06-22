@@ -12,6 +12,11 @@ installable web app (PWA). All data stays privately on your device.
 - **Intermittent fasting** — set your eating window; the app tracks whether
   you're inside it, warns when a meal breaks the fast, and tells you exactly
   when your next recommended meal is.
+- **Activity log** — record exercise with start/finish times and intensity:
+  Walking & Riding (with km), Swimming (with metres), Gym and Sport. Each gets a
+  rough **kJ-burnt estimate** (standard MET values × your body weight ×
+  duration). Activities are grouped by day with daily duration and energy
+  totals, sync across devices, and are included in backups.
 - **Drinks tracking** — set a daily hydration goal and tap to log. Water,
   coffee, tea and other no-sugar drinks count toward the goal with a running
   remaining tally; sugary drinks (soft drinks, juice, energy drinks, alcohol)

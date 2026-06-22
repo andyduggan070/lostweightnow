@@ -99,6 +99,43 @@
       </div>
     </section>
 
+    <!-- ============ ACTIVITY ============ -->
+    <section id="tab-activity" class="tab">
+      <div class="card">
+        <h2>Log Activity</h2>
+        <form id="activityForm">
+          <label>Activity
+            <select id="actType"></select>
+          </label>
+          <div class="form-row">
+            <label>Start
+              <input type="datetime-local" id="actStart" required>
+            </label>
+            <label>Finish
+              <input type="datetime-local" id="actEnd" required>
+            </label>
+          </div>
+          <div class="form-row">
+            <label id="actDistanceLabel">Distance (<span id="actDistanceUnit">km</span>)
+              <input type="number" id="actDistance" step="0.1" min="0" inputmode="decimal">
+            </label>
+            <label>Intensity
+              <select id="actIntensity">
+                <option value="light">Light</option>
+                <option value="moderate" selected>Moderate</option>
+                <option value="vigorous">Vigorous</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" class="btn primary full">Log Activity</button>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Activity History</h2>
+        <div id="activityList"></div>
+      </div>
+    </section>
+
     <!-- ============ HISTORY ============ -->
     <section id="tab-history" class="tab">
       <div class="card">
@@ -278,6 +315,7 @@
 
   <nav class="tab-bar">
     <button class="tab-btn active" data-tab="today"><span class="ico">🍽️</span>Today</button>
+    <button class="tab-btn" data-tab="activity"><span class="ico">🏃</span>Activity</button>
     <button class="tab-btn" data-tab="history"><span class="ico">📒</span>History</button>
     <button class="tab-btn" data-tab="weight"><span class="ico">⚖️</span>Weight</button>
     <button class="tab-btn" data-tab="settings"><span class="ico">⚙️</span>Settings</button>
