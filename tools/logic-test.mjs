@@ -149,6 +149,13 @@ check("activityMinutes computes duration", domain.activityMinutes(act) === 45, `
 check("activity types include all five", ["walking","riding","gym","swimming","sport"].every(k => domain.ACTIVITIES[k]));
 check("swimming records metres, gym records no distance", domain.ACTIVITIES.swimming.distance === "m" && !domain.ACTIVITIES.gym.distance);
 
+// kJ burnt: MET(walking moderate 3.5) × 80kg × 0.75h × 4.184 ≈ 879
+state.weights = [{ date: "2026-01-01", kg: 80, ts: 1 }];
+const burnt = domain.estimateActivityKj({ type: "walking", intensity: "moderate", start: "2026-06-21T08:00:00Z", end: "2026-06-21T08:45:00Z" });
+check("activity kJ-burnt matches the MET formula", Math.abs(burnt - 879) <= 2, `got ${burnt}`);
+const a3 = domain.addActivity({ type: "riding", intensity: "vigorous", start: "2026-06-21T06:00:00Z", end: "2026-06-21T07:00:00Z" });
+check("addActivity stores a kJ-burnt estimate", a3.kj > 0, `got ${a3.kj}`);
+
 // --- cloud-sync merge ---
 const base = () => ({ profile: { weightUnit: "kg" }, goal: {}, fasting: { start: "12:00", end: "20:00" }, waterGoalMl: 2000, water: {}, meals: [], weights: [], updatedAt: 0 });
 

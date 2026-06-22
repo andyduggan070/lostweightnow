@@ -307,13 +307,14 @@ function activityItemHTML(a) {
   const cfg = ACTIVITIES[a.type] || { label: a.type, icon: "🏃" };
   const dist = cfg.distance && a.distance ? ` · ${a.distance} ${cfg.distance}` : "";
   const intensity = a.intensity ? ` · ${a.intensity}` : "";
+  const kj = a.kj ? ` · 🔥 ${a.kj} kJ` : "";
   return `<li class="meal-item" data-id="${a.id}">
     <div class="meal-top">
       <span class="meal-desc"><span class="drink-icon">${cfg.icon}</span>${cfg.label}</span>
       <span class="meal-meta">${fmtTime(a.start)}–${fmtTime(a.end)}
         <button class="meal-del activity-del" title="Delete" aria-label="Delete activity">✕</button></span>
     </div>
-    <div class="meal-flags muted small">${fmtDuration(activityMinutes(a))}${dist}${intensity}</div>
+    <div class="meal-flags muted small">${fmtDuration(activityMinutes(a))}${dist}${intensity}${kj}</div>
   </li>`;
 }
 
@@ -329,7 +330,9 @@ function renderActivities() {
   $("#activityList").innerHTML = days.map(k => {
     const items = byDay[k].sort((x, y) => new Date(x.start) - new Date(y.start)).map(activityItemHTML).join("");
     const mins = byDay[k].reduce((s, a) => s + activityMinutes(a), 0);
-    return `<div class="history-day"><h3>${fmtDate(k)} · ⏱ ${fmtDuration(mins)}</h3><ul class="meal-list">${items}</ul></div>`;
+    const kj = byDay[k].reduce((s, a) => s + (a.kj || 0), 0);
+    const kjHead = kj > 0 ? ` · 🔥 ${kj} kJ` : "";
+    return `<div class="history-day"><h3>${fmtDate(k)} · ⏱ ${fmtDuration(mins)}${kjHead}</h3><ul class="meal-list">${items}</ul></div>`;
   }).join("");
 }
 
