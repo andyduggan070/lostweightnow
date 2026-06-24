@@ -25,35 +25,50 @@ const check = (name, cond, extra = "") => {
 
 const at = (h, m = 0) => { const d = new Date(2026, 5, 12); d.setHours(h, m, 0, 0); return d; };
 
-// --- fasting window 12:00-20:00 (default) ---
-let w = domain.windowInfo(at(14));
-check("14:00 is inside 12-20 window", w.inWindow === true);
-check("minsToEnd at 14:00 is 360", w.minsToEnd === 360, `got ${w.minsToEnd}`);
+// --- sliding eating window (anchored to first meal) ---
+state.fasting = { start: "12:00", windowHours: 8 };
+state.extendedFast = null;
+state.meals = [];
 
-w = domain.windowInfo(at(9));
-check("09:00 is outside window", w.inWindow === false);
-check("next start in 180 min", w.minsToNextStart === 180, `got ${w.minsToNextStart}`);
+let fs = domain.fastingState(at(9));
+check("before planned start with no meal -> prestart", fs.mode === "prestart", fs.mode);
+fs = domain.fastingState(at(13));
+check("past planned start with no meal -> ready", fs.mode === "ready", fs.mode);
 
-w = domain.windowInfo(at(22));
-check("22:00 is outside window", w.inWindow === false);
-check("next start in 840 min (tomorrow noon)", w.minsToNextStart === 840, `got ${w.minsToNextStart}`);
+// first meal at 14:30 -> window opens then, closes 22:30 (8h later)
+domain.addMeal("lunch", "medium", at(14, 30));
+fs = domain.fastingState(at(15));
+check("after first meal -> eating window open", fs.mode === "eating", fs.mode);
+check("window closes 8h after first meal (22:30)", new Date(fs.close).getHours() === 22 && new Date(fs.close).getMinutes() === 30, new Date(fs.close).toString());
+check("meal within the window is not outside", domain.isOutsideWindow(at(20)) === false);
+check("meal after the window close is outside", domain.isOutsideWindow(at(23)) === true);
+check("after the close time -> closed", domain.fastingState(at(23)).mode === "closed");
+state.meals = [];
 
-// --- overnight window 20:00-04:00 ---
-state.fasting = { start: "20:00", end: "04:00" };
-w = domain.windowInfo(at(22));
-check("22:00 inside overnight window", w.inWindow === true);
-check("overnight window length 480", w.windowLen === 480, `got ${w.windowLen}`);
-check("overnight minsToEnd at 22:00 is 360", w.minsToEnd === 360, `got ${w.minsToEnd}`);
-w = domain.windowInfo(at(2));
-check("02:00 inside overnight window", w.inWindow === true);
-check("overnight minsToEnd at 02:00 is 120", w.minsToEnd === 120, `got ${w.minsToEnd}`);
-w = domain.windowInfo(at(10));
-check("10:00 outside overnight window", w.inWindow === false);
-check("10:00 -> next start in 600", w.minsToNextStart === 600, `got ${w.minsToNextStart}`);
-state.fasting = { start: "12:00", end: "20:00" };
+// breach coaching: first meal at noon, then a meal at 21:00 (>8h later)
+domain.addMeal("first", "medium", at(12));
+let a = domain.analyzeMeal("banana", "medium", at(21));
+check("late meal flagged outside the window", a.message.includes("outside your"), a.message);
+state.meals = [];
 
-// --- coaching ---
-let a = domain.analyzeMeal("grilled chicken salad with avocado", "medium", at(13));
+check("nextMealAdvice empty when ready to eat", domain.nextMealAdvice(at(13)) === "");
+check("nextMealAdvice names planned time before start", /planned to open at/i.test(domain.nextMealAdvice(at(9))));
+
+// --- extended fast ---
+domain.addMeal("dinner", "medium", at(20));   // anchors the fast at 20:00
+domain.startExtendedFast(40, at(21));
+fs = domain.fastingState(at(21));
+check("extended fast mode active for 40h", fs.mode === "extended" && fs.hours === 40);
+check("extended fast anchored to last meal (60 min elapsed at 21:00)", Math.round(fs.elapsedMin) === 60, `got ${fs.elapsedMin}`);
+check("a meal during the fast is not an out-of-window breach", domain.isOutsideWindow(at(22)) === false);
+check("extendedFast() returns the active fast", !!domain.extendedFast());
+domain.endExtendedFast();
+check("endExtendedFast clears it", domain.extendedFast() === null);
+state.meals = [];
+state.extendedFast = null;
+
+// --- coaching basics ---
+a = domain.analyzeMeal("grilled chicken salad with avocado", "medium", at(13));
 check("healthy meal tone is good", a.tone === "good", `got ${a.tone}`);
 check("healthy meal flags found", a.flags.some(f => f.label === "lean protein") && a.flags.some(f => f.label === "vegetables"));
 
@@ -61,15 +76,8 @@ a = domain.analyzeMeal("large fries and a cola", "large", at(13));
 check("junk meal tone warns", a.tone === "warn", `got ${a.tone}`);
 check("junk meal flags fried+sugary drink", a.flags.some(f => f.label === "fried food") && a.flags.some(f => f.label === "sugary drink"));
 
-a = domain.analyzeMeal("banana", "medium", at(9));
-check("meal at 09:00 mentions window breach", a.message.includes("outside your"), a.message);
-check("breach message recommends next meal time", /next recommended meal/i.test(a.message), a.message);
-
 a = domain.analyzeMeal("mystery stew", "extra-large", at(13));
 check("extra-large portion always warns", a.tone === "warn");
-
-check("nextMealAdvice empty when window open", domain.nextMealAdvice(at(13)) === "");
-check("nextMealAdvice names the time when fasting", /next recommended meal is at/i.test(domain.nextMealAdvice(at(8))));
 
 // --- goal trajectory ---
 state.goal = { startWeightKg: 100, startDate: "2026-06-01", weightKg: 90, date: "2026-08-30" };
@@ -118,8 +126,10 @@ r = domain.logBeverage("diet_soft", "medium", noon);
 check("diet soft drink counts as hydration", r.hydrating === true);
 
 state.water = {}; state.meals = [];
-r = domain.logBeverage("soft_drink", "medium", at(9));
-check("soft drink at 09:00 flagged outside window", r.analysis.message.includes("outside your"), r.analysis.message);
+domain.addMeal("first meal", "medium", at(12));            // opens the window at noon
+r = domain.logBeverage("soft_drink", "medium", at(21));    // 9h later -> past the 8h window
+check("sugary drink past the window is flagged outside", r.analysis.message.includes("outside your"), r.analysis.message);
+state.meals = [];
 
 // back-dated drinks bucket by their own day and keep their timestamp
 state.water = {};

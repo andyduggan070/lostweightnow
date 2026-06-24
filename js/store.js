@@ -8,7 +8,8 @@ export const STORE_KEY = "lwn-state-v1";
 export const defaultState = () => ({
   profile: { age: null, sex: "", heightCm: null, startWeightKg: null, weightUnit: "kg", waterUnit: "ml" },
   goal: { weightKg: null, date: null, startWeightKg: null, startDate: null },
-  fasting: { start: "12:00", end: "20:00" },
+  fasting: { start: "12:00", windowHours: 8 }, // planned open + eating-window length; window slides off first meal
+  extendedFast: null, // { active, hours, start(ISO) } when running a 24/32/40/48h fast
   waterGoalMl: 2000,
   water: {},   // dateKey -> [{ml, ts, type}]
   meals: [],   // {id, desc, time(ISO), portion, flags, tone, message}
@@ -21,7 +22,18 @@ export const defaultState = () => ({
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) return Object.assign(defaultState(), JSON.parse(raw));
+    if (raw) {
+      const s = Object.assign(defaultState(), JSON.parse(raw));
+      // migrate old fixed window { start, end } -> { start, windowHours }
+      if (s.fasting && s.fasting.windowHours == null) {
+        const toMin = (t) => { const [h, m] = (t || "12:00").split(":").map(Number); return h * 60 + m; };
+        let span = toMin(s.fasting.end || "20:00") - toMin(s.fasting.start || "12:00");
+        if (span <= 0) span += 1440;
+        s.fasting = { start: s.fasting.start || "12:00", windowHours: Math.round(span / 60) || 8 };
+      }
+      if (s.fasting) delete s.fasting.end;
+      return s;
+    }
   } catch (e) { /* corrupted -> start fresh */ }
   return defaultState();
 }

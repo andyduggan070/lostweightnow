@@ -31,6 +31,16 @@
         <div id="fastingStatus" class="fasting-status"></div>
         <div class="progress-track"><div id="fastingProgress" class="progress-fill"></div></div>
         <div id="fastingDetail" class="muted small"></div>
+        <div class="fast-extended">
+          <span class="muted small">Longer fast for autophagy:</span>
+          <div class="fast-actions" id="fastActions">
+            <button type="button" class="btn" data-fast="24">24h</button>
+            <button type="button" class="btn" data-fast="32">32h</button>
+            <button type="button" class="btn" data-fast="40">40h</button>
+            <button type="button" class="btn" data-fast="48">48h</button>
+          </div>
+          <button type="button" class="btn ghost full hidden" id="endFast">End extended fast</button>
+        </div>
       </div>
 
       <div class="card" id="waterCard">
@@ -240,14 +250,15 @@
       <div class="card">
         <h2>Eating Window (Intermittent Fasting)</h2>
         <form id="fastingForm" class="form-row">
-          <label>First meal from
+          <label>Planned first meal
             <input type="time" id="windowStart" value="12:00">
           </label>
-          <label>Last meal by
-            <input type="time" id="windowEnd" value="20:00">
+          <label>Eating window (hours)
+            <input type="number" id="windowHours" min="1" max="23" step="1" value="8">
           </label>
         </form>
         <div id="windowSummary" class="muted small"></div>
+        <p class="muted small">Your window opens when you log your first meal and closes that many hours later, so eating later just slides it. The planned time is a reminder.</p>
       </div>
 
       <div class="card">

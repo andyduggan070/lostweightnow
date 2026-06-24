@@ -54,31 +54,106 @@ const HYDRATION_ICONS = { water: "💧", sparkling: "🫧", coffee: "☕", tea: 
 export const drinkLabel = (type) => (BEVERAGES[type] && BEVERAGES[type].label) || "Water";
 export const drinkIcon = (type) => HYDRATION_ICONS[type] || "💧";
 
-/* ---------------- fasting window ---------------- */
+/* ---------------- fasting window (sliding, anchored to first meal) ----------------
+   The eating window is `windowHours` long. It OPENS when the first meal of the
+   day is logged and CLOSES windowHours later — so eating later just slides the
+   close time. `fasting.start` is the *planned* opening time, used as guidance
+   before the first meal. An optional extended fast (24/32/40/48h) overrides
+   everything while active. */
 
-export function windowInfo(at = new Date()) {
-  const start = parseHM(state.fasting.start);
-  const end = parseHM(state.fasting.end);
-  const m = at.getHours() * 60 + at.getMinutes();
-  const overnight = start > end;
-  const inWindow = overnight ? (m >= start || m <= end) : (m >= start && m <= end);
-  const windowLen = overnight ? (1440 - start + end) : (end - start);
+const DAY_MS = 86400000;
+const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
 
-  let minsToNextStart, minsToEnd;
-  if (inWindow) {
-    minsToEnd = overnight && m >= start ? (1440 - m + end) : (end - m);
-    minsToNextStart = null;
-  } else {
-    minsToNextStart = m < start ? start - m : 1440 - m + start;
-    minsToEnd = null;
+function firstMealMsOn(at) {
+  const k = dateKey(at);
+  let min = null;
+  for (const m of state.meals) {
+    if (dateKey(m.time) === k) {
+      const t = new Date(m.time).getTime();
+      if (min === null || t < min) min = t;
+    }
   }
-  return { inWindow, start, end, windowLen, minsToNextStart, minsToEnd, overnight, nowMins: m };
+  return min;
+}
+
+// the active extended fast, or null
+export function extendedFast() {
+  const ef = state.extendedFast;
+  return ef && ef.active ? ef : null;
+}
+
+// Current fasting/eating state. Returns { mode, ... } where mode is one of
+// "extended" | "eating" | "ready" | "prestart" | "closed".
+export function fastingState(at = new Date()) {
+  const now = at.getTime();
+  const wh = (state.fasting && state.fasting.windowHours) || 8;
+  const winMs = wh * 3600000;
+
+  const ef = extendedFast();
+  if (ef) {
+    const start = new Date(ef.start).getTime();
+    const target = start + ef.hours * 3600000;
+    return {
+      mode: "extended", hours: ef.hours, start, target, windowHours: wh,
+      elapsedMin: Math.max(0, (now - start) / 60000),
+      remainingMin: (target - now) / 60000,
+      reached: now >= target
+    };
+  }
+
+  const plannedOpen = startOfDay(at) + parseHM(state.fasting.start) * 60000;
+  const fm = firstMealMsOn(at);
+  if (fm != null) {
+    const close = fm + winMs;
+    if (now <= close) return { mode: "eating", open: fm, close, windowHours: wh, remainingMin: (close - now) / 60000 };
+    return { mode: "closed", open: fm, close, windowHours: wh, sinceCloseMin: (now - close) / 60000, nextOpen: plannedOpen + DAY_MS };
+  }
+  if (now >= plannedOpen) return { mode: "ready", plannedOpen, windowHours: wh };
+  return { mode: "prestart", plannedOpen, windowHours: wh, untilOpenMin: (plannedOpen - now) / 60000 };
+}
+
+// Is a meal logged at `when` outside the eating window? (Used for the flag and
+// coaching.) The first meal of the day opens the window, so it's never outside;
+// a meal is outside only if it lands after first-meal + windowHours. While an
+// extended fast is active a meal is "breaking the fast", handled separately.
+export function isOutsideWindow(when) {
+  if (extendedFast()) return false;
+  const t = when.getTime();
+  const fm = firstMealMsOn(when);
+  if (fm == null || t <= fm) return false;
+  return t > fm + ((state.fasting.windowHours || 8) * 3600000);
+}
+
+export function startExtendedFast(hours, at = new Date()) {
+  // anchor to the most recent meal (the real start of the fast), else now
+  let start = at.getTime(), last = null;
+  for (const m of state.meals) {
+    const t = new Date(m.time).getTime();
+    if (t <= at.getTime() && (last === null || t > last)) last = t;
+  }
+  if (last !== null) start = last;
+  state.extendedFast = { active: true, hours, start: new Date(start).toISOString() };
+  save();
+}
+
+export function endExtendedFast() {
+  state.extendedFast = null;
+  save();
 }
 
 export function nextMealAdvice(at = new Date()) {
-  const win = windowInfo(at);
-  if (win.inWindow) return "";
-  return `Your next recommended meal is at ${fmtHM(win.start)} (${fmtDuration(win.minsToNextStart)} from now).`;
+  const fs = fastingState(at);
+  if (fs.mode === "extended") {
+    return fs.reached
+      ? `Your ${fs.hours}h fast is complete — break it gently whenever you're ready.`
+      : `You're ${fmtDuration(fs.elapsedMin)} into a ${fs.hours}h fast — ${fmtDuration(fs.remainingMin)} to go.`;
+  }
+  if (fs.mode === "eating" || fs.mode === "ready") return "";
+  if (fs.mode === "prestart") {
+    return `Your eating window is planned to open at ${fmtHM(parseHM(state.fasting.start))} (${fmtDuration(fs.untilOpenMin)} from now).`;
+  }
+  // closed
+  return `Your ${fs.windowHours}h window has closed for today — next planned meal at ${fmtHM(parseHM(state.fasting.start))} tomorrow.`;
 }
 
 /* ---------------- coaching engine ---------------- */
@@ -110,13 +185,18 @@ export function analyzeMeal(desc, portion, when) {
   const warn = flags.filter(f => f.type === "warn").map(f => f.label);
   const bad = flags.filter(f => f.type === "bad").map(f => f.label);
 
-  const win = windowInfo(when);
+  const ef = extendedFast();
+  const outside = isOutsideWindow(when);
   const parts = [];
   let tone = "neutral";
 
-  if (!win.inWindow) {
-    const next = nextMealAdvice(when);
-    parts.push(`⏰ This meal was outside your ${fmtHM(win.start)}–${fmtHM(win.end)} eating window. Eating during your fast undoes much of its benefit. ${next}`);
+  if (ef) {
+    const fs = fastingState(when);
+    parts.push(fs.reached
+      ? `🎉 This breaks your ${ef.hours}h fast right on target (${fmtDuration(fs.elapsedMin)}) — nice work. Ease back in: start small, protein and veg over heavy carbs.`
+      : `🛑 This breaks your ${ef.hours}h fast early, at ${fmtDuration(fs.elapsedMin)}. No harm done, but if you meant to push to ${ef.hours}h you've stopped short. Either way, break it gently.`);
+  } else if (outside) {
+    parts.push(`⏰ This meal is outside your ${state.fasting.windowHours}h eating window — it opened with your first meal today and has since closed. Eating past your window shortens your daily fast. ${nextMealAdvice(when)}`);
     tone = "warn";
   }
 
@@ -147,7 +227,7 @@ export function analyzeMeal(desc, portion, when) {
   }
 
   const hour = when.getHours();
-  if (win.inWindow && (hour >= 21 || hour < 5)) {
+  if (!ef && !outside && (hour >= 21 || hour < 5)) {
     parts.push(`Late-night eating tends to be less mindful — try to front-load your calories earlier in your window.`);
   }
 
@@ -172,14 +252,15 @@ function swapIdea(label) {
 /* Create a meal entry, run coaching on it, persist, and return the stored
    meal record (so callers can later attach an AI kilojoule estimate). */
 export function addMeal(desc, portion, when) {
-  const analysis = analyzeMeal(desc, portion, when);
+  const analysis = analyzeMeal(desc, portion, when);   // may reference an active extended fast
   const meal = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     desc, time: when.toISOString(), portion,
     flags: analysis.flags, tone: analysis.tone, message: analysis.message,
-    outsideWindow: !windowInfo(when).inWindow
+    outsideWindow: isOutsideWindow(when)
   };
   state.meals.push(meal);
+  if (extendedFast()) state.extendedFast = null; // logging a meal breaks the fast
   save();
   return meal;
 }
@@ -326,6 +407,7 @@ export function mergeStates(a, b) {
   out.profile = newer.profile;
   out.goal = newer.goal;
   out.fasting = newer.fasting;
+  out.extendedFast = newer.extendedFast;
   out.waterGoalMl = newer.waterGoalMl;
   out.updatedAt = Math.max(a.updatedAt || 0, b.updatedAt || 0);
   return out;
@@ -368,14 +450,17 @@ export const aiReady = () => aiCfg.enabled && aiCfg.apiKey && navigator.onLine;
 // Build the user-message context for one meal/drink.
 export function mealContextText(m) {
   const when = new Date(m.time);
-  const win = windowInfo(when);
+  const ef = extendedFast();
+  const wh = (state.fasting && state.fasting.windowHours) || 8;
   const lines = [
     `Item: ${m.desc}`,
     `Portion: ${m.portion}`,
     `Time eaten: ${when.toLocaleString()}`,
-    win.inWindow
-      ? `This is inside the user's eating window (${fmtHM(win.start)}–${fmtHM(win.end)}).`
-      : `This is OUTSIDE the user's intermittent-fasting window (${fmtHM(win.start)}–${fmtHM(win.end)}) — they should be fasting now.`
+    ef
+      ? `This meal BREAKS a planned ${ef.hours}h extended fast — coach gently on refeeding.`
+      : (isOutsideWindow(when)
+        ? `This is OUTSIDE the user's ${wh}h eating window (it has closed for the day).`
+        : `This is within the user's ${wh}h eating window.`)
   ];
   const g = state.goal, last = latestWeight();
   if (g.weightKg && g.date) {

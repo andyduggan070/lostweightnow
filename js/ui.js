@@ -6,6 +6,7 @@ import { state, save, replaceState, defaultState, latestWeight } from "./store.j
 import {
   addMeal, addHydration, logBeverage, setMealKj, tombstone, BEVERAGES,
   ACTIVITIES, addActivity,
+  startExtendedFast, endExtendedFast, extendedFast,
   displayToKg, displayToMl,
   aiCfg, saveAiCfg, aiReady, geminiGenerate, geminiCoach, mealContextText,
   DEFAULT_MODEL, DEFAULT_PERSONA, buildBackup, parseBackup
@@ -176,6 +177,19 @@ function setupWeight() {
   });
 }
 
+function setupFasting() {
+  $("#fastActions").addEventListener("click", (e) => {
+    const h = e.target.dataset && e.target.dataset.fast;
+    if (!h) return;
+    if (extendedFast() && !confirm("Start a new extended fast? This replaces the current one.")) return;
+    startExtendedFast(Number(h));
+    renderAll();
+  });
+  $("#endFast").addEventListener("click", () => {
+    if (confirm("End the extended fast?")) { endExtendedFast(); renderAll(); }
+  });
+}
+
 function setupActivity() {
   const typeSel = $("#actType");
   typeSel.innerHTML = Object.entries(ACTIVITIES)
@@ -251,11 +265,12 @@ function setupSettings() {
 
   const applyWindow = () => {
     state.fasting.start = $("#windowStart").value || "12:00";
-    state.fasting.end = $("#windowEnd").value || "20:00";
+    const h = parseInt($("#windowHours").value, 10);
+    state.fasting.windowHours = h >= 1 && h <= 23 ? h : 8;
     save(); renderFasting(); renderMeals(); renderDailyReview();
   };
   $("#windowStart").addEventListener("change", applyWindow);
-  $("#windowEnd").addEventListener("change", applyWindow);
+  $("#windowHours").addEventListener("change", applyWindow);
 
   ["#profileForm", "#goalForm", "#fastingForm"].forEach(s => $(s).addEventListener("submit", e => e.preventDefault()));
 
@@ -334,6 +349,7 @@ setupMeals();
 setupWater();
 setupWeight();
 setupActivity();
+setupFasting();
 setupSettings();
 setupSync();
 setupAI();

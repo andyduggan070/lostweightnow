@@ -9,9 +9,13 @@ installable web app (PWA). All data stays privately on your device.
 - **Honest coaching** — every meal gets straight-talking feedback on the food
   choices (good choices, warning foods, portion sizes, late-night eating),
   plus a daily coach review.
-- **Intermittent fasting** — set your eating window; the app tracks whether
-  you're inside it, warns when a meal breaks the fast, and tells you exactly
-  when your next recommended meal is.
+- **Intermittent fasting (sliding 16:8 by default)** — set an eating-window
+  length (default 8h) and a *planned* first-meal time. The window opens when you
+  log your first meal of the day and closes that many hours later, so eating
+  later simply slides the window (first meal at 2:30pm → window closes 10:30pm).
+  The app tracks where you are and flags meals logged after the window closes.
+- **Extended fasts** — start a 24/32/40/48h fast for autophagy; the card shows
+  progress toward the target with stage notes, and logging a meal breaks it.
 - **Activity log** — record exercise with start/finish times and intensity:
   Walking & Riding (with km), Swimming (with metres), Gym and Sport. Each gets a
   rough **kJ-burnt estimate** (standard MET values × your body weight ×
