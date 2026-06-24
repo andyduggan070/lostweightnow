@@ -4,8 +4,8 @@
 import { $, $$, todayKey, toLocalInputValue, escapeHTML } from "./util.js";
 import { state, save, replaceState, defaultState, latestWeight } from "./store.js";
 import {
-  addMeal, addHydration, logBeverage, logCustomDrink, classifyDrinkLocally,
-  geminiClassifyDrink, allBeverages, setMealKj, tombstone,
+  addMeal, addHydration, logBeverage, logCustomDrink, geminiClassifyDrink,
+  allBeverages, setMealKj, tombstone,
   ACTIVITIES, addActivity,
   startExtendedFast, endExtendedFast, extendedFast,
   displayToKg, displayToMl,
@@ -150,38 +150,31 @@ function setupWater() {
   };
   $("#drinkType").addEventListener("change", syncDrinkForm);
 
-  // Log a free-text "Other" drink: let the AI (or a local fallback) work out
-  // whether it hydrates, its volume, energy and coaching, then store it as a
-  // reusable drink and record it.
+  // Log a free-text "Other" drink: the AI works out whether it hydrates, its
+  // volume, energy and coaching; without AI it's logged as a coached meal. The
+  // drink is then saved to the list for re-use.
   const logOther = async (when) => {
     const title = $("#customDrinkTitle").value.trim();
     const desc = $("#customDrinkDesc").value.trim();
     const note = $("#drinkNote");
     if (!title) { $("#customDrinkTitle").focus(); return; }
 
-    let cls, aiNote = "";
+    let cls = null;
     if (aiReady()) {
       renderCoach(note, "neutral", "Coach (AI)", "<em>Working out your drink…</em>");
-      try {
-        cls = await geminiClassifyDrink(title, desc);
-      } catch (err) {
-        cls = classifyDrinkLocally(title, desc, when);
-        aiNote = ` <span class="muted small">(AI unavailable: ${escapeHTML(err.message)})</span>`;
-      }
-    } else {
-      cls = classifyDrinkLocally(title, desc, when);
+      try { cls = await geminiClassifyDrink(title, desc); }
+      catch { cls = null; } // fall back to logging it as a coached meal
     }
 
     const res = logCustomDrink(title, desc, cls, when);
-    const title2 = aiReady() && !aiNote ? "Coach (AI)" : "Coach says";
+    const heading = cls ? "Coach (AI)" : "Coach says";
     if (res.hydrating) {
-      const body = (res.note || `${escapeHTML(res.bev.label)} counts toward your hydration goal.`);
-      renderCoach(note, "good", title2, escapeHTML(res.note) || body);
+      renderCoach(note, "good", heading,
+        escapeHTML(res.note) || `${escapeHTML(res.bev.label)} counts toward your hydration goal.`);
     } else {
-      const kj = res.meal && res.meal.kj ? ` <span class="kj-badge">≈ ${res.meal.kj} kJ</span>` : "";
-      renderCoach(note, res.analysis.tone, title2,
-        escapeHTML(res.analysis.message) + kj + aiNote +
-        ` <span class="muted small">Added to your meal log.</span>`);
+      const kj = res.meal.kj ? ` <span class="kj-badge">≈ ${res.meal.kj} kJ</span>` : "";
+      renderCoach(note, res.analysis.tone, heading,
+        `${escapeHTML(res.analysis.message)}${kj} <span class="muted small">Added to your meal log.</span>`);
     }
 
     // reset the form and surface the newly saved drink in the list

@@ -276,14 +276,6 @@ check("addCustomBeverage avoids key collisions", bev2.key !== bev1.key, bev2.key
 check("drinkLabel resolves a custom drink", domain.drinkLabel(bev1.key) === "Mango Kombucha");
 check("drinkIcon gives custom drinks a default icon", typeof domain.drinkIcon(bev1.key) === "string" && domain.drinkIcon(bev1.key).length > 0);
 
-// local fallback classification: hydrating vs caloric, from name + description
-let lc = domain.classifyDrinkLocally("Green tea", "plain unsweetened", at(13));
-check("local classify marks plain tea hydrating", lc.hydrating === true, JSON.stringify(lc));
-lc = domain.classifyDrinkLocally("Cola", "regular sugary cola", at(13));
-check("local classify marks sugary cola non-hydrating", lc.hydrating === false, JSON.stringify(lc));
-lc = domain.classifyDrinkLocally("Margarita", "tequila cocktail", at(13));
-check("local classify marks an alcoholic drink non-hydrating", lc.hydrating === false, JSON.stringify(lc));
-
 // logging an AI-classified hydrating "Other" drink counts toward the water goal
 state.water = {}; state.meals = []; state.customBeverages = [];
 let cd = domain.logCustomDrink("Iced herbal infusion", "unsweetened hibiscus, big glass",
@@ -304,6 +296,14 @@ check("custom caloric drink stores the AI kJ estimate", state.meals[0].kj === 25
 check("custom caloric drink does not touch water", !state.water[dateKey(at(13))]);
 check("custom caloric drink uses the AI coaching message", cd.analysis.message.includes("Liquid dessert"));
 check("custom caloric drink desc shows the title and volume", /Salted caramel milkshake — /.test(state.meals[0].desc), state.meals[0].desc);
+
+// with no AI classification, an "Other" drink is logged conservatively as a
+// coached meal (we can't know offline whether it hydrates)
+state.water = {}; state.meals = []; state.customBeverages = [];
+cd = domain.logCustomDrink("Bubble tea", "tapioca milk tea", undefined, at(13));
+check("custom drink without AI logs as a meal", cd.hydrating === false && state.meals.length === 1, `meals=${state.meals.length}`);
+check("custom drink without AI skips the water goal", !state.water[dateKey(at(13))]);
+check("custom drink without AI still falls back to rule-based coaching", typeof cd.analysis.message === "string" && cd.analysis.message.length > 0);
 
 // custom drinks survive a sync merge, unioned by key
 A = base(); B = base();
