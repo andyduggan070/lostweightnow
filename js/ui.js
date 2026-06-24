@@ -4,7 +4,8 @@
 import { $, $$, todayKey, toLocalInputValue, escapeHTML } from "./util.js";
 import { state, save, replaceState, defaultState, latestWeight } from "./store.js";
 import {
-  addMeal, addHydration, logBeverage, setMealKj, tombstone, BEVERAGES,
+  addMeal, addHydration, logBeverage, logCustomDrink, geminiClassifyDrink,
+  allBeverages, setMealKj, tombstone,
   ACTIVITIES, addActivity,
   startExtendedFast, endExtendedFast, extendedFast,
   displayToKg, displayToMl,
@@ -129,11 +130,64 @@ function setupWater() {
     }
   });
 
-  // beverage type selector (sizes are filled/relabelled by renderWater)
-  $("#drinkType").innerHTML = Object.entries(BEVERAGES)
-    .map(([key, b]) => `<option value="${key}">${b.label}</option>`).join("");
+  // beverage type selector: built-ins + saved custom drinks, then an "Other…"
+  // entry that reveals the free-text form. Sizes are filled/relabelled by
+  // renderWater. The "Other" sentinel can't collide with a real beverage key.
+  const OTHER = "__other__";
+  const renderDrinkTypes = (selected) => {
+    const opts = Object.entries(allBeverages())
+      .map(([key, b]) => `<option value="${key}">${b.label}</option>`).join("");
+    $("#drinkType").innerHTML = opts + `<option value="${OTHER}">➕ Other…</option>`;
+    if (selected) $("#drinkType").value = selected;
+  };
+  renderDrinkTypes();
+
+  // When "Other" is picked, swap the size selector for the title/description form.
+  const syncDrinkForm = () => {
+    const isOther = $("#drinkType").value === OTHER;
+    $("#drinkSizeLabel").classList.toggle("hidden", isOther);
+    $("#customDrinkFields").classList.toggle("hidden", !isOther);
+  };
+  $("#drinkType").addEventListener("change", syncDrinkForm);
+
+  // Log a free-text "Other" drink: the AI works out whether it hydrates, its
+  // volume, energy and coaching; without AI it's logged as a coached meal. The
+  // drink is then saved to the list for re-use.
+  const logOther = async (when) => {
+    const title = $("#customDrinkTitle").value.trim();
+    const desc = $("#customDrinkDesc").value.trim();
+    const note = $("#drinkNote");
+    if (!title) { $("#customDrinkTitle").focus(); return; }
+
+    let cls = null;
+    if (aiReady()) {
+      renderCoach(note, "neutral", "Coach (AI)", "<em>Working out your drink…</em>");
+      try { cls = await geminiClassifyDrink(title, desc); }
+      catch { cls = null; } // fall back to logging it as a coached meal
+    }
+
+    const res = logCustomDrink(title, desc, cls, when);
+    const heading = cls ? "Coach (AI)" : "Coach says";
+    if (res.hydrating) {
+      renderCoach(note, "good", heading,
+        escapeHTML(res.note) || `${escapeHTML(res.bev.label)} counts toward your hydration goal.`);
+    } else {
+      const kj = res.meal.kj ? ` <span class="kj-badge">≈ ${res.meal.kj} kJ</span>` : "";
+      renderCoach(note, res.analysis.tone, heading,
+        `${escapeHTML(res.analysis.message)}${kj} <span class="muted small">Added to your meal log.</span>`);
+    }
+
+    // reset the form and surface the newly saved drink in the list
+    $("#customDrinkTitle").value = "";
+    $("#customDrinkDesc").value = "";
+    renderDrinkTypes(res.bev.key);
+    syncDrinkForm();
+    resetWhen();
+    renderAll();
+  };
 
   $("#drinkLog").addEventListener("click", () => {
+    if ($("#drinkType").value === OTHER) { logOther(drinkWhen()); return; }
     const res = logBeverage($("#drinkType").value, $("#drinkSize").value, drinkWhen());
     if (!res) return;
     resetWhen();

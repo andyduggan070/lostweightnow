@@ -51,8 +51,55 @@ export const DRINK_SIZES = [
 ];
 
 const HYDRATION_ICONS = { water: "💧", sparkling: "🫧", coffee: "☕", tea: "🍵", herbal: "🌿", diet_soft: "🥤" };
-export const drinkLabel = (type) => (BEVERAGES[type] && BEVERAGES[type].label) || "Water";
-export const drinkIcon = (type) => HYDRATION_ICONS[type] || "💧";
+
+// A custom drink the user has saved, looked up by its key.
+const customBeverage = (type) => (state.customBeverages || []).find(c => c.key === type) || null;
+
+// All loggable drinks: the built-ins plus any the user has saved, keyed the same
+// way so logBeverage/drinkLabel/drinkIcon treat them identically.
+export function allBeverages() {
+  const out = Object.assign({}, BEVERAGES);
+  for (const c of (state.customBeverages || [])) out[c.key] = c;
+  return out;
+}
+
+export const drinkLabel = (type) => {
+  const b = BEVERAGES[type] || customBeverage(type);
+  return (b && b.label) || "Water";
+};
+export const drinkIcon = (type) => {
+  if (HYDRATION_ICONS[type]) return HYDRATION_ICONS[type];
+  const c = customBeverage(type);
+  return (c && c.icon) || "🥤";
+};
+
+// Slugify a label into a key that doesn't clash with an existing drink.
+function uniqueBeverageKey(label) {
+  const base = "custom_" + (String(label).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "drink");
+  const all = allBeverages();
+  let key = base, n = 2;
+  while (all[key]) key = `${base}_${n++}`;
+  return key;
+}
+
+// Save a user-defined drink so it joins the dropdown for re-use. Returns the
+// stored record (with its generated key).
+export function addCustomBeverage({ label, hydrating, desc, note, icon }) {
+  const bev = {
+    key: uniqueBeverageKey(label || "drink"),
+    label: (label || "Custom drink").trim(),
+    hydrating: !!hydrating,
+    desc: (desc || label || "Custom drink").trim(),
+    note: note || "",
+    icon: icon || (hydrating ? "🥤" : "🍹"),
+    custom: true
+  };
+  (state.customBeverages ||= []).push(bev);
+  save();
+  return bev;
+}
+
+const mlToPortion = (ml) => (ml >= 450 ? "large" : ml <= 280 ? "small" : "medium");
 
 /* ---------------- fasting window (sliding, anchored to first meal) ----------------
    The eating window is `windowHours` long. It OPENS when the first meal of the
@@ -283,7 +330,7 @@ export function addHydration(ml, type, when) {
 // Log a drink at `when`. Hydrating drinks go toward the water goal; the rest
 // become coached meals. Returns { hydrating, note?, analysis?, meal? } for the UI.
 export function logBeverage(typeKey, sizeKey, when = new Date()) {
-  const bev = BEVERAGES[typeKey];
+  const bev = allBeverages()[typeKey];
   const size = DRINK_SIZES.find(s => s.key === sizeKey) || DRINK_SIZES[0];
   if (!bev) return null;
 
@@ -296,6 +343,32 @@ export function logBeverage(typeKey, sizeKey, when = new Date()) {
   const portion = SIZE_TO_PORTION[size.key] || "medium";
   const meal = addMeal(desc, portion, when);
   return { hydrating: false, analysis: { flags: meal.flags, tone: meal.tone, message: meal.message }, meal };
+}
+
+// Log a free-text "Other" drink: save it to the drink list for re-use, then
+// record it. `cls` is the AI classification (or {} when the AI isn't available,
+// in which case the drink is logged conservatively as a coached meal — we can't
+// know offline whether it hydrates). Hydrating drinks count toward the water
+// goal; the rest become coached meals carrying the kJ estimate. Returns
+// { hydrating, bev, note?, meal?, analysis? } for the UI.
+export function logCustomDrink(title, description, cls = {}, when = new Date()) {
+  const hydrating = !!cls.hydrating;
+  const ml = cls.volumeMl > 0 ? Math.round(cls.volumeMl) : 350;
+  const bev = addCustomBeverage({
+    label: title, hydrating, desc: description || title, note: hydrating ? (cls.coaching || "") : ""
+  });
+
+  if (hydrating) {
+    addHydration(ml, bev.key, when);
+    return { hydrating: true, bev, note: cls.coaching || "" };
+  }
+
+  const meal = addMeal(`${title} — ${fmtWater(ml)}`, mlToPortion(ml), when);
+  if (cls.kilojoules > 0) setMealKj(meal.id, cls.kilojoules);
+  return {
+    hydrating: false, bev, meal,
+    analysis: { flags: meal.flags, tone: meal.tone, message: cls.coaching || meal.message }
+  };
 }
 
 export function waterToday() {
@@ -404,6 +477,11 @@ export function mergeStates(a, b) {
   }
   for (const k of Object.keys(out.water)) if (!out.water[k].length) delete out.water[k];
 
+  // custom beverages: union by key (keys are unique and never reused)
+  const custom = {};
+  for (const c of [...(a.customBeverages || []), ...(b.customBeverages || [])]) custom[c.key] = c;
+  out.customBeverages = Object.values(custom);
+
   out.profile = newer.profile;
   out.goal = newer.goal;
   out.fasting = newer.fasting;
@@ -472,53 +550,11 @@ export function mealContextText(m) {
   return lines.join("\n");
 }
 
-export async function geminiGenerate(userText) {
+// One Gemini request: POST a body and return the candidate's joined text.
+async function geminiCall(body) {
   if (!aiCfg.apiKey) throw new Error("no API key");
   const model = aiCfg.model || DEFAULT_MODEL;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(aiCfg.apiKey)}`;
-  const body = {
-    systemInstruction: { parts: [{ text: aiCfg.systemPrompt || DEFAULT_PERSONA }] },
-    contents: [{ role: "user", parts: [{ text: userText }] }],
-    generationConfig: { temperature: 0.7, maxOutputTokens: 400 }
-  };
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) {
-    let detail = "HTTP " + res.status;
-    try { const e = await res.json(); detail = (e.error && e.error.message) || detail; } catch {}
-    throw new Error(detail);
-  }
-  const data = await res.json();
-  const text = (((data.candidates || [])[0] || {}).content || {}).parts;
-  const out = (text || []).map(p => p.text || "").join("").trim();
-  if (!out) throw new Error("empty response");
-  return out;
-}
-
-// Structured coaching: returns { coaching, kilojoules } in one call, so each
-// logged meal gets both feedback and a stored kJ estimate. The schema forces
-// a kilojoules field regardless of the user's custom persona.
-export async function geminiCoach(userText) {
-  if (!aiCfg.apiKey) throw new Error("no API key");
-  const model = aiCfg.model || DEFAULT_MODEL;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(aiCfg.apiKey)}`;
-  const system = (aiCfg.systemPrompt || DEFAULT_PERSONA) +
-    "\n\nAlso give your single best rough estimate of the item's total food energy in kilojoules " +
-    "(kJ) as a positive integer in the 'kilojoules' field. An approximation is expected and useful; " +
-    "estimate sensibly from the description and portion size rather than returning 0.";
-  const body = {
-    systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: "user", parts: [{ text: userText }] }],
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 500,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: "OBJECT",
-        properties: { coaching: { type: "STRING" }, kilojoules: { type: "INTEGER" } },
-        required: ["coaching", "kilojoules"]
-      }
-    }
-  };
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!res.ok) {
     let detail = "HTTP " + res.status;
@@ -527,10 +563,73 @@ export async function geminiCoach(userText) {
   }
   const data = await res.json();
   const parts = (((data.candidates || [])[0] || {}).content || {}).parts;
-  const raw = (parts || []).map(p => p.text || "").join("").trim();
-  let parsed;
-  try { parsed = JSON.parse(raw); } catch { throw new Error("could not parse AI response"); }
-  return { coaching: (parsed.coaching || "").trim(), kilojoules: Number(parsed.kilojoules) };
+  return (parts || []).map(p => p.text || "").join("").trim();
+}
+
+// A structured Gemini call: forces JSON matching `properties` and returns the
+// parsed object (all properties required).
+async function geminiJSON(system, userText, properties) {
+  const raw = await geminiCall({
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.7, maxOutputTokens: 500,
+      responseMimeType: "application/json",
+      responseSchema: { type: "OBJECT", properties, required: Object.keys(properties) }
+    }
+  });
+  try { return JSON.parse(raw); } catch { throw new Error("could not parse AI response"); }
+}
+
+export async function geminiGenerate(userText) {
+  const out = await geminiCall({
+    systemInstruction: { parts: [{ text: aiCfg.systemPrompt || DEFAULT_PERSONA }] },
+    contents: [{ role: "user", parts: [{ text: userText }] }],
+    generationConfig: { temperature: 0.7, maxOutputTokens: 400 }
+  });
+  if (!out) throw new Error("empty response");
+  return out;
+}
+
+// Structured coaching: returns { coaching, kilojoules } in one call, so each
+// logged meal gets both feedback and a stored kJ estimate. The schema forces
+// a kilojoules field regardless of the user's custom persona.
+export async function geminiCoach(userText) {
+  const system = (aiCfg.systemPrompt || DEFAULT_PERSONA) +
+    "\n\nAlso give your single best rough estimate of the item's total food energy in kilojoules " +
+    "(kJ) as a positive integer in the 'kilojoules' field. An approximation is expected and useful; " +
+    "estimate sensibly from the description and portion size rather than returning 0.";
+  const p = await geminiJSON(system, userText, { coaching: { type: "STRING" }, kilojoules: { type: "INTEGER" } });
+  return { coaching: (p.coaching || "").trim(), kilojoules: Number(p.kilojoules) };
+}
+
+// Classify a free-text "Other" drink in one structured call: decide whether it
+// hydrates, estimate its serving volume and energy, and write coaching — so the
+// user can describe any drink and have the app work out how to log it.
+export async function geminiClassifyDrink(title, description) {
+  const system =
+    "You classify a single drink for a combined hydration and weight-loss tracker. " +
+    "From the drink's name and description, return four fields. " +
+    "'hydrating': true ONLY if the drink genuinely hydrates with little or no sugar or alcohol — " +
+    "plain or sparkling water, black/unsweetened coffee and tea, herbal tea, and diet/zero soft drinks " +
+    "are hydrating; sugary soft drinks, fruit juice, energy drinks, smoothies, milk-based drinks and any " +
+    "alcoholic drink are NOT hydrating. " +
+    "'volumeMl': your best estimate of the serving volume in millilitres (e.g. a can ≈ 330, a pint ≈ 568, " +
+    "a mug ≈ 250); estimate sensibly rather than returning 0. " +
+    "'kilojoules': the serving's total food energy in kJ as a non-negative integer (0 for water and plain " +
+    "tea/coffee); approximate from the description. " +
+    "'coaching': 1–3 sentences of honest, supportive feedback on this drink for someone losing weight. " +
+    "Coach in this voice: " + (aiCfg.systemPrompt || DEFAULT_PERSONA);
+  const p = await geminiJSON(system, `Drink name: ${title}\nDescription: ${description || "(none provided)"}`, {
+    hydrating: { type: "BOOLEAN" }, volumeMl: { type: "INTEGER" },
+    kilojoules: { type: "INTEGER" }, coaching: { type: "STRING" }
+  });
+  return {
+    hydrating: !!p.hydrating,
+    volumeMl: Number(p.volumeMl) || 0,
+    kilojoules: Number(p.kilojoules) || 0,
+    coaching: (p.coaching || "").trim()
+  };
 }
 
 /* ---------------- backup bundle ---------------- */
