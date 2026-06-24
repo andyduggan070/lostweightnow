@@ -1,43 +1,88 @@
 /* All DOM rendering. Reads state + domain helpers and paints the UI. */
 
-import { $, $$, dateKey, todayKey, fmtTime, fmtDate, fmtDuration, fmtHM, escapeHTML } from "./util.js";
+import { $, $$, dateKey, todayKey, fmtTime, fmtDate, fmtDuration, fmtHM, parseHM, escapeHTML } from "./util.js";
 import { state, latestWeight } from "./store.js";
 import {
   kgToDisplay, mlToDisplay, fmtWeight, fmtWater,
-  windowInfo, waterToday, expectedWeightKg,
+  fastingState, waterToday, expectedWeightKg,
   DRINK_SIZES, drinkLabel, drinkIcon,
   ACTIVITIES, activityMinutes
 } from "./domain.js";
 
+function autophagyNote(elapsedMin) {
+  const h = elapsedMin / 60;
+  if (h >= 36) return "Deep autophagy & strong fat-burning — stay hydrated and watch for light-headedness.";
+  if (h >= 24) return "Autophagy ramping up and glycogen depleted — prime fat-burning zone.";
+  if (h >= 16) return "Glycogen low, fat-burning increasing.";
+  if (h >= 12) return "Switching toward fat for fuel.";
+  return "Early in the fast — water, black coffee and tea are fine.";
+}
+
 function renderFasting() {
-  const win = windowInfo();
+  const fs = fastingState();
   const pill = $("#fastingPill");
   const status = $("#fastingStatus");
   const detail = $("#fastingDetail");
   const bar = $("#fastingProgress");
+  const wh = fs.windowHours;
 
-  if (win.inWindow) {
+  const setBar = (pct, colour) => { bar.style.width = Math.min(100, Math.max(0, pct)) + "%"; bar.style.background = colour; };
+
+  if (fs.mode === "extended") {
+    const total = fs.hours * 60;
+    pill.textContent = `${fs.hours}h fast`;
+    pill.className = "fasting-pill closed";
+    status.className = "fasting-status closed";
+    if (fs.reached) {
+      status.textContent = `🎉 ${fs.hours}h fast complete!`;
+      detail.textContent = `You've reached ${fmtDuration(fs.elapsedMin)}. Break it gently whenever you're ready, or keep going. ${autophagyNote(fs.elapsedMin)}`;
+      setBar(100, "#22c55e");
+    } else {
+      status.textContent = `🔥 Extended fast — ${fmtDuration(fs.elapsedMin)} of ${fs.hours}h`;
+      detail.textContent = `${fmtDuration(fs.remainingMin)} to go. ${autophagyNote(fs.elapsedMin)}`;
+      setBar((fs.elapsedMin / total) * 100, "#f59e0b");
+    }
+  } else if (fs.mode === "eating") {
     pill.textContent = "Eating window open";
     pill.className = "fasting-pill open";
-    status.textContent = `🍽️ Eating window open — closes at ${fmtHM(win.end)}`;
+    status.textContent = `🍽️ Eating window open — closes at ${fmtTime(fs.close)}`;
     status.className = "fasting-status open";
-    detail.textContent = `${fmtDuration(win.minsToEnd)} left to finish your last meal.`;
-    const elapsed = win.windowLen - win.minsToEnd;
-    bar.style.width = Math.min(100, (elapsed / win.windowLen) * 100) + "%";
-    bar.style.background = "#22c55e";
-  } else {
-    const fastLen = 1440 - win.windowLen;
-    const fasted = fastLen - win.minsToNextStart;
+    detail.textContent = `${fmtDuration(fs.remainingMin)} left in your ${wh}h window (opened ${fmtTime(fs.open)} with your first meal).`;
+    const elapsed = wh * 60 - fs.remainingMin;
+    setBar((elapsed / (wh * 60)) * 100, "#22c55e");
+  } else if (fs.mode === "ready") {
+    pill.textContent = "Ready to eat";
+    pill.className = "fasting-pill open";
+    status.textContent = `🍽️ Ready — your ${wh}h window starts at your first meal`;
+    status.className = "fasting-status open";
+    detail.textContent = `Log your first meal to start the clock; the window then closes ${wh}h later.`;
+    setBar(0, "#22c55e");
+  } else if (fs.mode === "prestart") {
     pill.textContent = "Fasting";
     pill.className = "fasting-pill closed";
-    status.textContent = `⏳ Fasting — next recommended meal at ${fmtHM(win.start)}`;
+    status.textContent = `⏳ Fasting — planned first meal at ${fmtHM(parseHM(state.fasting.start))}`;
     status.className = "fasting-status closed";
-    detail.textContent = `${fmtDuration(win.minsToNextStart)} until your eating window opens. You're ${fmtDuration(Math.max(0, fasted))} into this fast — stay strong, water and black coffee are fine.`;
-    bar.style.width = Math.min(100, Math.max(0, (fasted / fastLen) * 100)) + "%";
-    bar.style.background = "#f59e0b";
+    detail.textContent = `${fmtDuration(fs.untilOpenMin)} until your planned window. Eat earlier or later — the window slides to your first meal.`;
+    setBar(0, "#f59e0b");
+  } else { // closed
+    pill.textContent = "Fasting";
+    pill.className = "fasting-pill closed";
+    status.textContent = `⏳ Fasting — window closed at ${fmtTime(fs.close)}`;
+    status.className = "fasting-status closed";
+    detail.textContent = `${fmtDuration(fs.sinceCloseMin)} since your ${wh}h window closed. Next planned meal at ${fmtHM(parseHM(state.fasting.start))} tomorrow.`;
+    setBar(100, "#f59e0b");
   }
+
+  // start/stop controls for an extended fast
+  const fastActions = $("#fastActions"), endBtn = $("#endFast");
+  if (fastActions && endBtn) {
+    const active = fs.mode === "extended";
+    fastActions.classList.toggle("hidden", active);
+    endBtn.classList.toggle("hidden", !active);
+  }
+
   $("#windowSummary").textContent =
-    `Eating window: ${fmtHM(win.start)}–${fmtHM(win.end)} (${fmtDuration(win.windowLen)} eating, ${fmtDuration(1440 - win.windowLen)} fasting).`;
+    `${24 - wh}:${wh} fasting — a ${wh}h eating window that opens with your first meal (planned ${fmtHM(parseHM(state.fasting.start))}) and closes ${wh}h later.`;
 }
 
 function renderWater() {
@@ -382,7 +427,7 @@ function renderSettings() {
   $("#goalWeight").value = state.goal.weightKg != null ? +kgToDisplay(state.goal.weightKg).toFixed(1) : "";
   $("#goalDate").value = state.goal.date || "";
   $("#windowStart").value = state.fasting.start;
-  $("#windowEnd").value = state.fasting.end;
+  $("#windowHours").value = state.fasting.windowHours;
 
   renderProfileStats();
   renderGoalAdvice();
