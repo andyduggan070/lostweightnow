@@ -63,15 +63,23 @@
           <button class="btn ghost" id="waterUndo">Undo</button>
         </div>
         <div class="drink-form">
-          <label>Other drink
+          <label>Drink
             <select id="drinkType"></select>
           </label>
-          <label>Size
+          <label id="drinkSizeLabel">Size
             <select id="drinkSize"></select>
           </label>
           <button type="button" class="btn" id="drinkLog">Log</button>
         </div>
-        <p class="muted small drink-hint">Water, coffee &amp; tea count toward your goal. Sugary drinks go to your meal log instead. Set <em>When</em> to back-date a drink.</p>
+        <div class="custom-drink-fields hidden" id="customDrinkFields">
+          <label>Drink title
+            <input type="text" id="customDrinkTitle" placeholder="e.g. Mango kombucha" autocomplete="off">
+          </label>
+          <label>Description
+            <input type="text" id="customDrinkDesc" placeholder="Ingredients &amp; rough size — the coach reads this to work out the rest">
+          </label>
+        </div>
+        <p class="muted small drink-hint">Water, coffee &amp; tea count toward your goal. Sugary drinks go to your meal log instead. Pick <em>Other…</em> to log any drink — the coach works out the details from your description. Set <em>When</em> to back-date a drink.</p>
         <div id="drinkNote" class="coach-box hidden"></div>
         <div id="waterDone" class="success-note hidden">🎉 Hydration goal reached — well done!</div>
         <ul id="todayDrinks" class="meal-list drinks-list"></ul>

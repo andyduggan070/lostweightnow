@@ -12,6 +12,7 @@ export const defaultState = () => ({
   extendedFast: null, // { active, hours, start(ISO) } when running a 24/32/40/48h fast
   waterGoalMl: 2000,
   water: {},   // dateKey -> [{ml, ts, type}]
+  customBeverages: [], // user-defined drinks: {key, label, hydrating, desc, note, icon, custom}
   meals: [],   // {id, desc, time(ISO), portion, flags, tone, message}
   weights: [], // {date, kg, ts} sorted by date
   activities: [], // {id, type, start(ISO), end(ISO), distance?, intensity}

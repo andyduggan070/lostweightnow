@@ -2,7 +2,7 @@
    Network-first for the app shell (HTML/JS/CSS) so updates are picked up as
    soon as you're online; cache-first for icons/manifest; cache is the offline
    fallback for everything. Bump CACHE on any change to retire old caches. */
-const CACHE = "lwn-v4";
+const CACHE = "lwn-v5";
 const ASSETS = [
   "./",
   "./index.html",

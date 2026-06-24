@@ -261,5 +261,61 @@ check("parseBackup rejects unknown files", threw);
 
 check("default persona is non-empty", typeof domain.DEFAULT_PERSONA === "string" && domain.DEFAULT_PERSONA.length > 20);
 
+// --- custom ("Other") drinks ---
+state.profile.weightUnit = "kg"; state.profile.waterUnit = "ml";
+state.water = {}; state.meals = []; state.customBeverages = [];
+state.fasting = { start: "12:00", windowHours: 8 };
+
+// saving a custom drink joins the loggable list under a unique, derived key
+const bev1 = domain.addCustomBeverage({ label: "Mango Kombucha", hydrating: false, desc: "fizzy mango tea" });
+check("addCustomBeverage derives a slug key", bev1.key === "custom_mango_kombucha", bev1.key);
+check("addCustomBeverage flags it as custom", bev1.custom === true);
+check("allBeverages includes built-ins and customs", !!domain.allBeverages().water && !!domain.allBeverages()[bev1.key]);
+const bev2 = domain.addCustomBeverage({ label: "Mango Kombucha", hydrating: false });
+check("addCustomBeverage avoids key collisions", bev2.key !== bev1.key, bev2.key);
+check("drinkLabel resolves a custom drink", domain.drinkLabel(bev1.key) === "Mango Kombucha");
+check("drinkIcon gives custom drinks a default icon", typeof domain.drinkIcon(bev1.key) === "string" && domain.drinkIcon(bev1.key).length > 0);
+
+// local fallback classification: hydrating vs caloric, from name + description
+let lc = domain.classifyDrinkLocally("Green tea", "plain unsweetened", at(13));
+check("local classify marks plain tea hydrating", lc.hydrating === true, JSON.stringify(lc));
+lc = domain.classifyDrinkLocally("Cola", "regular sugary cola", at(13));
+check("local classify marks sugary cola non-hydrating", lc.hydrating === false, JSON.stringify(lc));
+lc = domain.classifyDrinkLocally("Margarita", "tequila cocktail", at(13));
+check("local classify marks an alcoholic drink non-hydrating", lc.hydrating === false, JSON.stringify(lc));
+
+// logging an AI-classified hydrating "Other" drink counts toward the water goal
+state.water = {}; state.meals = []; state.customBeverages = [];
+let cd = domain.logCustomDrink("Iced herbal infusion", "unsweetened hibiscus, big glass",
+  { hydrating: true, volumeMl: 500, kilojoules: 0, coaching: "Refreshing and zero sugar — great." }, at(13));
+check("custom hydrating drink reports hydrating", cd.hydrating === true);
+check("custom hydrating drink adds its AI volume to water", (state.water[dateKey(at(13))] || []).reduce((s, e) => s + e.ml, 0) === 500, JSON.stringify(state.water));
+check("custom hydrating drink does not touch meals", state.meals.length === 0);
+check("custom hydrating drink saved to the list", state.customBeverages.some(c => c.key === cd.bev.key && c.hydrating));
+check("custom hydrating water entry carries the custom key", (state.water[dateKey(at(13))] || [])[0].type === cd.bev.key);
+
+// logging an AI-classified caloric "Other" drink becomes a coached meal with kJ
+state.water = {}; state.meals = []; state.customBeverages = [];
+cd = domain.logCustomDrink("Salted caramel milkshake", "large milkshake with syrup",
+  { hydrating: false, volumeMl: 500, kilojoules: 2500, coaching: "Liquid dessert — save it for a treat." }, at(13));
+check("custom caloric drink reports non-hydrating", cd.hydrating === false);
+check("custom caloric drink added to meals", state.meals.length === 1, `meals=${state.meals.length}`);
+check("custom caloric drink stores the AI kJ estimate", state.meals[0].kj === 2500, `kj=${state.meals[0].kj}`);
+check("custom caloric drink does not touch water", !state.water[dateKey(at(13))]);
+check("custom caloric drink uses the AI coaching message", cd.analysis.message.includes("Liquid dessert"));
+check("custom caloric drink desc shows the title and volume", /Salted caramel milkshake — /.test(state.meals[0].desc), state.meals[0].desc);
+
+// custom drinks survive a sync merge, unioned by key
+A = base(); B = base();
+A.customBeverages = [{ key: "custom_a", label: "A", hydrating: true }];
+B.customBeverages = [{ key: "custom_b", label: "B", hydrating: false }];
+m = domain.mergeStates(A, B);
+check("merge unions custom beverages from both devices", (m.customBeverages || []).length === 2);
+A = base(); B = base();
+A.customBeverages = [{ key: "custom_a", label: "A" }];
+B.customBeverages = [{ key: "custom_a", label: "A" }];
+check("merge dedupes custom beverages by key", domain.mergeStates(A, B).customBeverages.length === 1);
+state.customBeverages = [];
+
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll checks passed");
 process.exit(failures ? 1 : 0);

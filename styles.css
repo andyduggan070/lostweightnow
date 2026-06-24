@@ -139,6 +139,9 @@ textarea { resize: vertical; }
 .drink-form label { flex: 1; margin-bottom: 0; }
 .drink-form .btn { flex: 0 0 auto; }
 .drink-hint { margin: 8px 0 0; }
+.custom-drink-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.custom-drink-fields label { margin-bottom: 0; }
+.custom-drink-fields input { width: 100%; }
 .drinks-list { margin-top: 10px; }
 .drinks-list:empty { display: none; }
 .drink-icon { margin-right: 4px; }
